@@ -1,0 +1,66 @@
+# Build directories (CMake artifacts only - excluding final binaries)
+build/CMakeFiles/
+build/cmake_install.cmake
+build/CMakeCache.txt
+build/CTestTestfile.cmake
+build/_deps/
+build/*_autogen/
+build/Testing/
+build/*.ninja
+
+# Compiled files
+*.o
+*.so
+*.a
+*.lib
+*.dll
+*.exe
+
+# IDE and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.user
+*.Creator
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# Qt specific
+moc_*.cpp
+ui_*.h
+*.qrc_*
+*.moc
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Version control
+.git/
+.gitignore
+.gitattributes
+
+# Docker
+.dockerignore
+Dockerfile*
+docker-compose.yml
+
+# Documentation
+*.md
+DOCKER*
+DEPENDENCIES.md
+
+# Package managers
+.npm/
+node_modules/
+
+# Other
+.env
+*.log
+

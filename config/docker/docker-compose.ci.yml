@@ -1,0 +1,97 @@
+version: '3.9'
+
+# Override configuration for CI/testing environments
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.ci.yml up
+
+services:
+  builder:
+    profiles:
+      - ci
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+      args:
+        - BUILDKIT_INLINE_CACHE=1
+    image: bookme-silly:builder-ci
+    volumes:
+      - .:/build
+      - ./build:/build/build
+    working_dir: /build/build
+    command: |
+      bash -c "
+        echo '=== BookMeSilly CI Build ===' && \
+        cmake .. -GNinja -DCMAKE_BUILD_TYPE=Release && \
+        ninja && \
+        echo '=== Running Tests ===' && \
+        ninja test && \
+        echo '=== Build Successful ==='
+      "
+    environment:
+      - CMAKE_BUILD_TYPE=Release
+      - NINJA_STATUS=[%p] %e
+
+  tester:
+    profiles:
+      - ci
+    image: bookme-silly:builder-ci
+    depends_on:
+      - builder
+    volumes:
+      - .:/build
+      - ./build:/build/build:ro
+    working_dir: /build/build
+    command: |
+      bash -c "
+        echo '=== Running Comprehensive Tests ===' && \
+        ninja test && \
+        echo '=== Code Analysis ===' && \
+        cppcheck --enable=all --suppress=missingIncludeSystem /build/src /build/include && \
+        echo '=== All Tests Passed ===' || \
+        (echo '=== Tests Failed ===' && exit 1)
+      "
+
+  production:
+    profiles:
+      - ci
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+      args:
+        - BUILDKIT_INLINE_CACHE=1
+    image: bookme-silly:production-ci
+    depends_on:
+      - builder
+    healthcheck:
+      test:
+        - CMD
+        - test
+        - -x
+        - /usr/local/bin/bookme-silly
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+  slim:
+    profiles:
+      - ci
+    build:
+      context: .
+      dockerfile: Dockerfile.slim
+      args:
+        - BUILDKIT_INLINE_CACHE=1
+    image: bookme-silly:slim-ci
+    depends_on:
+      - builder
+    healthcheck:
+      test:
+        - CMD
+        - test
+        - -x
+        - /usr/local/bin/bookme-silly
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s

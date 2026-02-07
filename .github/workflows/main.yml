@@ -1,0 +1,256 @@
+name: CI - Main Pipeline
+
+on:
+  push:
+    branches:
+      - '**'  # Trigger on all branches
+  pull_request:
+    branches:
+      - '**'  # Trigger on all branches for PRs
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker builder image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: builder
+          file: ./config/docker/Dockerfile
+          push: false
+          load: true
+          tags: bookme-silly:builder-ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run tests in builder container
+        run: |
+          docker run --rm \
+            bookme-silly:builder-ci \
+            bash -c "cd /build/build && ninja test"
+
+      - name: Build Docker production image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: production
+          file: ./config/docker/Dockerfile
+          push: false
+          load: true
+          tags: bookme-silly:latest-ci
+          cache-from: type=gha
+
+      - name: Verify production image
+        run: |
+          docker run --rm --entrypoint="" \
+            bookme-silly:latest-ci \
+            test -x /usr/local/bin/bookme-silly && \
+            echo "✓ Production binary verified"
+
+      - name: Build slim image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./config/docker/Dockerfile.slim
+          push: false
+          load: true
+          tags: bookme-silly:slim-ci
+          cache-from: type=gha
+
+      - name: Verify slim image
+        run: |
+          docker run --rm --entrypoint="" \
+            bookme-silly:slim-ci \
+            test -x /usr/local/bin/bookme-silly && \
+            echo "✓ Slim binary verified"
+
+      - name: Report image sizes
+        run: |
+          echo "=== Docker Image Sizes ==="
+          docker images | grep bookme-silly || true
+
+  code-quality:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: read
+      security-events: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker builder image for linting
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: builder
+          file: ./config/docker/Dockerfile
+          push: false
+          load: true
+          tags: bookme-silly:builder-lint
+          cache-from: type=gha
+
+      - name: Run code analysis
+        run: |
+          docker run --rm -v ${{ github.workspace }}:/build \
+            bookme-silly:builder-lint \
+            bash -c "mkdir -p /build/reports && echo '=== Running cppcheck ===' && \
+              cppcheck --enable=all --suppress=missingIncludeSystem -I/build/include -Dslots -Dsignals -Demit -DQ_OBJECT --suppressions-list=/build/config/cppcheck/suppressions.txt --xml-version=2 \
+                /build/src 2> /build/reports/cppcheck.xml || true && \
+              echo '=== Code analysis complete ===' && \
+              python3 /build/scripts/analysis/convert_cppcheck_xml_to_sarif.py /build/reports/cppcheck.xml /build/reports/cppcheck.sarif || true"
+
+      - name: Convert cppcheck XML to SARIF
+        run: |
+          python3 scripts/analysis/convert_cppcheck_xml_to_sarif.py reports/cppcheck.xml reports/cppcheck.sarif || true
+
+      - name: Upload cppcheck SARIF to GitHub
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: 'reports/cppcheck.sarif'
+
+  security-scan:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: read
+      security-events: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build production image for scanning
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: production
+          file: ./config/docker/Dockerfile
+          push: false
+          load: true
+          tags: bookme-silly:security-scan
+          cache-from: type=gha
+
+      - name: Run Grype vulnerability scanner
+        run: |
+          # Install grype
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+          
+          # Create reports directory
+          mkdir -p reports
+          
+          # Run grype and generate SARIF
+          grype docker:bookme-silly:security-scan --output sarif --file reports/grype-results.sarif || true
+
+      - name: Upload Grype results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: 'reports/grype-results.sarif'
+
+  push-to-registry:
+    runs-on: ubuntu-latest
+    needs: [build-and-test, code-quality, security-scan]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+
+      - name: Push production image to registry
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: production
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Push slim image to registry
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.slim
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:slim-${{ github.ref_name }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:slim-latest
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  summary:
+    runs-on: ubuntu-latest
+    needs: [build-and-test, code-quality, security-scan]
+    if: always()
+    
+    steps:
+      - name: Print Pipeline Summary
+        run: |
+          echo "=== CI Pipeline Summary ==="
+          echo "Build & Test: ${{ needs.build-and-test.result }}"
+          echo "Code Quality: ${{ needs.code-quality.result }}"
+          echo "Security Scan: ${{ needs.security-scan.result }}"
+          echo ""
+          if [ "${{ needs.build-and-test.result }}" = "success" ] && \
+             [ "${{ needs.code-quality.result }}" = "success" ] && \
+             [ "${{ needs.security-scan.result }}" = "success" ]; then
+            echo "✓ All checks passed!"
+            exit 0
+          else
+            echo "✗ Some checks failed"
+            exit 1
+          fi

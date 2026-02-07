@@ -1,0 +1,10 @@
+# Cppcheck configuration file
+# Qt macro definitions
+--define=slots
+--define=signals
+--define=emit
+--define=Q_OBJECT
+
+# Additional suppress rules for external/test-only code
+--suppress=unusedFunction:*test*
+--suppress=unusedFunction:*Test*

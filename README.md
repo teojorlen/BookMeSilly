@@ -1,2 +1,112 @@
 # BookMeSilly
-An open souce audio book player with high performance and cross platform support. Hopefully it will also syncronize library and play status between devices.
+
+An open source audio book player with high performance and cross-platform support. Synchronize your library and play status across devices.
+
+## Quick Links
+
+- **[Architecture](docs/ARCHITECTURE.md)** - Project structure and design
+- **[Contributing](docs/CONTRIBUTING.md)** - How to contribute to the project
+- **[Dependencies](docs/setup/DEPENDENCIES.md)** - Required packages and libraries
+- **[Docker Guide](docs/docker/DOCKER.md)** - Container setup and usage
+- **[CI/CD Setup](docs/ci/CI_SETUP.md)** - Continuous integration configuration
+
+## Features
+
+- 🎵 High-performance audio playback
+- 🔄 Cross-platform support
+- ☁️ Library and play status synchronization (planned)
+- 📦 Docker containerization
+- ✅ Comprehensive test coverage
+- 🔒 Security scanning and static analysis
+
+## Quick Start
+
+### Prerequisites
+- Docker (recommended)
+- CMake 3.10+
+- C++17 compiler
+- Qt6 development libraries
+
+### Build and Test
+```bash
+# Run local CI pipeline
+./scripts/ci/ci-test.sh
+
+# Or build manually with Docker
+docker build --target builder -t bookme-silly:builder .
+docker run bookme-silly:builder ninja test
+
+# Or build with CMake
+mkdir build && cd build
+cmake ..
+ninja
+ninja test
+```
+
+### Development
+```bash
+# Run code quality checks
+make run-code-quality
+
+# Run security scan
+make run-security-scan
+
+# View available make targets
+make help
+```
+
+## Project Organization
+
+The project uses a concern-based organization:
+
+```
+docs/           → Documentation (architecture, setup, CI/CD)
+src/            → Source code (backend, frontend)
+include/        → Header files
+config/         → Configuration files (cppcheck, docker)
+scripts/        → Automation scripts (CI, analysis, dev)
+tests/          → Test suite (unit, integration)
+assets/         → Static assets (icons, images, resources)
+build/          → CMake build output (generated)
+```
+
+For detailed information, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Contributing
+
+We welcome contributions! Please see [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for:
+- Development setup instructions
+- Code style guidelines
+- Testing requirements
+- Pull request process
+- Code review checklist
+
+## Documentation
+
+Comprehensive documentation is available in the `docs/` directory:
+
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** - Full project structure and design decisions
+- **[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)** - Contribution guidelines
+- **[docs/ci/](docs/ci/)** - CI/CD workflow and setup
+- **[docs/docker/](docs/docker/)** - Docker usage and configuration
+- **[docs/setup/](docs/setup/)** - Setup and dependencies
+
+## Build Targets
+
+Common make targets:
+
+```bash
+make build              # Build the application
+make test               # Run unit tests
+make run-code-quality   # Run static analysis
+make run-security-scan  # Run security scanning
+make ci                 # Run complete CI pipeline locally
+```
+
+## License
+
+See the [LICENSE](LICENSE) file for details.
+
+---
+
+Built with ❤️ for audio book enthusiasts

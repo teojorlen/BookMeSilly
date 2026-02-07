@@ -1,0 +1,53 @@
+2026-02-07T11:26:20.4548636Z [command]/usr/bin/docker buildx build --cache-from type=gha --file ./config/docker/Dockerfile.slim --iidfile /home/runner/work/_temp/docker-actions-toolkit-92KcBy/build-iidfile-635987360d.txt --tag bookme-silly:slim-ci --load --metadata-file /home/runner/work/_temp/docker-actions-toolkit-92KcBy/build-metadata-6828a84f6f.json .
+2026-02-07T11:26:20.6669551Z #0 building with "builder-df77b0b3-6629-4a67-8735-d385abd7863f" instance using docker-container driver
+2026-02-07T11:26:20.6670261Z 
+2026-02-07T11:26:20.6670524Z #1 [internal] load build definition from Dockerfile.slim
+2026-02-07T11:26:20.6671179Z #1 transferring dockerfile: 1.25kB done
+2026-02-07T11:26:20.6671431Z #1 DONE 0.0s
+2026-02-07T11:26:20.6671529Z 
+2026-02-07T11:26:20.6671684Z #2 [internal] load metadata for docker.io/library/ubuntu:24.04
+2026-02-07T11:26:20.6671975Z #2 DONE 0.1s
+2026-02-07T11:26:20.6672073Z 
+2026-02-07T11:26:20.6672152Z #3 [internal] load .dockerignore
+2026-02-07T11:26:20.6672371Z #3 transferring context: 728B done
+2026-02-07T11:26:20.6672577Z #3 DONE 0.0s
+2026-02-07T11:26:20.7868049Z 
+2026-02-07T11:26:20.7868276Z #4 [internal] load build context
+2026-02-07T11:26:20.7868694Z #4 DONE 0.0s
+2026-02-07T11:26:20.7868881Z 
+2026-02-07T11:26:20.7869614Z #5 [1/6] FROM docker.io/library/ubuntu:24.04@sha256:cd1dba651b3080c3686ecf4e3c4220f026b521fb76978881737d24f200828b2b
+2026-02-07T11:26:20.7872424Z #5 resolve docker.io/library/ubuntu:24.04@sha256:cd1dba651b3080c3686ecf4e3c4220f026b521fb76978881737d24f200828b2b done
+2026-02-07T11:26:20.7873854Z #5 DONE 0.0s
+2026-02-07T11:26:20.7874065Z 
+2026-02-07T11:26:20.7874308Z #6 importing cache manifest from gha:17309825447938330436
+2026-02-07T11:26:20.7874846Z #6 DONE 0.1s
+2026-02-07T11:26:20.8930851Z 
+2026-02-07T11:26:20.8931842Z #5 [1/6] FROM docker.io/library/ubuntu:24.04@sha256:cd1dba651b3080c3686ecf4e3c4220f026b521fb76978881737d24f200828b2b
+2026-02-07T11:26:20.8932909Z #5 CACHED
+2026-02-07T11:26:20.8933109Z 
+2026-02-07T11:26:20.8933282Z #4 [internal] load build context
+2026-02-07T11:26:20.8933755Z #4 transferring context: 2B done
+2026-02-07T11:26:20.8934208Z #4 DONE 0.0s
+2026-02-07T11:26:20.8934411Z 
+2026-02-07T11:26:20.8935261Z #7 [3/6] RUN useradd -m --no-log-init appuser &&     mkdir -p /home/appuser/.config/bookme-silly &&     chown -R appuser:appuser /home/appuser
+2026-02-07T11:26:20.8936824Z #7 CACHED
+2026-02-07T11:26:20.8937009Z 
+2026-02-07T11:26:20.8937255Z #8 [4/6] COPY build/app /usr/local/bin/bookme-silly
+2026-02-07T11:26:20.8938593Z #8 ERROR: failed to calculate checksum of ref ox8moziax6o831wdpolhi2k10::q24nei0749fs3ijju9a6uyruq: "/build/app": not found
+2026-02-07T11:26:20.8939479Z 
+2026-02-07T11:26:20.8941032Z #9 [2/6] RUN apt-get update &&     apt-get install -y --no-install-recommends     libstdc++6     libqt6core6t64     libqt6gui6t64     libqt6widgets6t64     libx11-6     libxcb1     libxkbcommon-x11-0     libxkbcommon0     libgl1     libinput10     && rm -rf /var/lib/apt/lists/*
+2026-02-07T11:26:20.8942788Z #9 CANCELED
+2026-02-07T11:26:20.8943068Z ------
+2026-02-07T11:26:20.8943465Z  > [4/6] COPY build/app /usr/local/bin/bookme-silly:
+2026-02-07T11:26:20.8943903Z ------
+2026-02-07T11:26:20.8949965Z Dockerfile.slim:34
+2026-02-07T11:26:20.8950955Z --------------------
+2026-02-07T11:26:20.8951268Z   32 |     
+2026-02-07T11:26:20.8951705Z   33 |     # Copy only the binary (requires external build)
+2026-02-07T11:26:20.8952272Z   34 | >>> COPY build/app /usr/local/bin/bookme-silly
+2026-02-07T11:26:20.8952769Z   35 |     RUN chmod +x /usr/local/bin/bookme-silly
+2026-02-07T11:26:20.8953193Z   36 |     
+2026-02-07T11:26:20.8953453Z --------------------
+2026-02-07T11:26:20.8954598Z ERROR: failed to build: failed to solve: failed to compute cache key: failed to calculate checksum of ref ox8moziax6o831wdpolhi2k10::q24nei0749fs3ijju9a6uyruq: "/build/app": not found
+2026-02-07T11:26:20.9026714Z ##[error]buildx failed with: ERROR: failed to build: failed to solve: failed to compute cache key: failed to calculate checksum of ref ox8moziax6o831wdpolhi2k10::q24nei0749fs3ijju9a6uyruq: "/build/app": not found
+2026-02-07T11:26:20.9158352Z Post job cleanup.

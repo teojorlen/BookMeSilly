@@ -1,0 +1,112 @@
+################################################################################
+# BookMeSilly - Slim Production Image
+# Optimized for minimal size and runtime overhead
+# Multi-stage build: Builder → Runtime
+################################################################################
+
+# ============================================================================
+# Stage 1: Builder
+# Minimal builder stage with only essential build tools
+# ============================================================================
+FROM ubuntu:24.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    ninja-build \
+    git \
+    pkg-config \
+    qt6-base-dev \
+    qt6-base-dev-tools \
+    qmake6 \
+    libx11-dev \
+    libxcb1-dev \
+    libxkbcommon-dev \
+    libxkbcommon-x11-dev \
+    libxkbcommon-x11-0 \
+    libxcb-xkb-dev \
+    libxcb-keysyms1 \
+    libxcb-render-util0 \
+    libxcb-shape0 \
+    libxcb-icccm4 \
+    libxcb-image0 \
+    libgl-dev \
+    libglx-dev \
+    libopengl-dev \
+    libinput-dev \
+    libmtdev-dev \
+    libevdev-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+WORKDIR /build
+COPY . /build/
+RUN mkdir -p /build/build
+
+WORKDIR /build/build
+RUN cmake .. -GNinja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/app
+
+RUN ninja
+
+# ============================================================================
+# Stage 2: Runtime Base (Slim)
+# Minimal image with only runtime dependencies
+# ============================================================================
+FROM ubuntu:24.04 AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
+
+# Install minimal runtime dependencies only
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libstdc++6 \
+    libqt6core6t64 \
+    libqt6gui6t64 \
+    libqt6widgets6t64 \
+    libx11-6 \
+    libxcb1 \
+    libxkbcommon-x11-0 \
+    libxkbcommon0 \
+    libgl1 \
+    libglx0 \
+    libopengl0 \
+    libinput10 \
+    libmtdev1t64 \
+    libevdev2 \
+    libpcre2-16-0 \
+    libdouble-conversion3 \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# ============================================================================
+# Stage 3: Production (Slim)
+# Final slim image with only the compiled binary
+# ============================================================================
+FROM runtime AS slim
+
+LABEL maintainer="BookMeSilly"
+LABEL description="BookMeSilly - Slim Audiobook Player"
+LABEL version="1.0"
+
+# Copy compiled executable from builder
+COPY --from=builder /build/build/app /usr/local/bin/bookme-silly
+
+# Make executable
+RUN chmod +x /usr/local/bin/bookme-silly
+
+# Create non-root user
+RUN useradd -m --no-log-init appuser && \
+    mkdir -p /home/appuser/.config/bookme-silly && \
+    chown -R appuser:appuser /home/appuser
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD test -x /usr/local/bin/bookme-silly || exit 1
+
+ENTRYPOINT ["/usr/local/bin/bookme-silly"]

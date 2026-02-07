@@ -1,0 +1,112 @@
+################################################################################
+# BookMeSilly - Docker Compose Configuration
+# Orchestrates multi-stage builds and service deployment
+################################################################################
+
+version: '3.9'
+
+services:
+  # Development environment for building and testing
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    image: bookme-silly:dev-latest
+    container_name: bookme-silly-dev
+    volumes:
+      # Mount source code for live editing
+      - .:/workspace
+      # Preserve build artifacts
+      - ./build:/workspace/build
+    environment:
+      - CMAKE_BUILD_TYPE=Debug
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+    command: /bin/bash
+
+  # Builder service for containerized builds
+  builder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    image: bookme-silly:builder-latest
+    container_name: bookme-silly-builder
+    volumes:
+      - .:/build
+      - ./build:/build/build
+    working_dir: /build/build
+    command: >
+      bash -c "
+      cmake .. -GNinja &&
+      ninja &&
+      ninja test
+      "
+
+  # Production image
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: bookme-silly:latest
+    container_name: bookme-silly
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_QPA_PLATFORM=offscreen
+    volumes:
+      # Mount audiobooks directory
+      - ./audiobooks:/home/appuser/audiobooks:ro
+      # Mount config directory
+      - bookme-silly-config:/home/appuser/.config/bookme-silly
+    ports:
+      # If implementing network features (web API, etc.)
+      - "8080:8080"
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 512M
+        reservations:
+          cpus: '1'
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "test", "-x", "/usr/local/bin/bookme-silly"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+  # Slim production image (if built separately)
+  app-slim:
+    build:
+      context: .
+      dockerfile: Dockerfile.slim
+    image: bookme-silly:slim
+    container_name: bookme-silly-slim
+    environment:
+      - QT_QPA_PLATFORM=offscreen
+    volumes:
+      - ./audiobooks:/home/appuser/audiobooks:ro
+      - bookme-silly-config:/home/appuser/.config/bookme-silly
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 256M
+        reservations:
+          cpus: '0.5'
+          memory: 128M
+    profiles:
+      - slim
+
+volumes:
+  bookme-silly-config:
+    driver: local
+
+networks:
+  default:
+    name: bookme-silly-network
+    driver: bridge

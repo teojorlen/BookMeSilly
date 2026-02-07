@@ -1,0 +1,7 @@
+# Cppcheck suppression file
+# Line-by-line suppressions are preferred (see source code comments).
+# Suppressions below handle cases that can't be suppressed inline.
+
+# Qt GUI classes - noConstructor is a false positive (Qt handles initialization via designer/setupUI)
+noConstructor:*CalculatorWindow*
+unmatchedSuppression
