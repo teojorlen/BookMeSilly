@@ -268,7 +268,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     ANDROID_NDK_VERSION=r26 \
     ANDROID_API=34
 
-# Install dependency packages
+# Install dependency packages (minimal for backend-only C++ builds)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Build tools
     build-essential \
@@ -294,7 +294,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     \
     # Additional utilities
     python3 \
-    git \
     \
     # Cleanup
     && rm -rf /var/lib/apt/lists/* \
@@ -363,26 +362,31 @@ cmake .. \
     -DCMAKE_ANDROID_PLATFORM=android-$ANDROID_API \
     -DCMAKE_ANDROID_ABI="$ANDROID_ABI" \
     -DCMAKE_ANDROID_NDK="$ANDROID_NDK" \
-    -DCMAKE_ANDROID_STL=c++_shared
+    -DCMAKE_ANDROID_STL=c++_shared \
+    -DBACKEND_ONLY=ON
 
 echo -e "${BLUE}Building with Ninja...${NC}"
 ninja
 
 echo -e "${GREEN}Build complete!${NC}"
+echo "Backend library: $BUILD_DIR/libbackend.a"
 echo "Output: $BUILD_DIR"
 EOF
 
 # Create info script
 RUN install -m 755 /dev/stdin /usr/local/bin/android-info.sh << 'EOF'
 #!/bin/bash
-echo "Android Build Environment Initialized"
-echo "====================================="
+echo "Android Build Environment Initialized (Backend Only)"
+echo "====================================================="
 echo "Android Home: $ANDROID_HOME"
 echo "Android NDK: $ANDROID_NDK"
 echo "Android API: $ANDROID_API"
 echo "Java Home: $JAVA_HOME"
 echo ""
-echo "To build an APK:"
+echo "This build configuration creates backend C++ libraries only."
+echo "No Qt/GUI components are included."
+echo ""
+echo "To build the backend library:"
 echo "  build-android.sh [Release|Debug] [arm64-v8a|armeabi-v7a|x86|x86_64]"
 echo ""
 echo "Examples:"

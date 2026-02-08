@@ -1,10 +1,17 @@
 # Android Build Configuration
 
-This document describes how to build BookMeSilly for Android devices using Docker with a complete, pre-configured Android NDK environment.
+This document describes how to build the **BookMeSilly backend library** for Android devices using Docker.
 
 ## Overview
 
-The Android build is fully containerized using Docker. Everything needed to build Android APKs is included:
+The Android build is fully containerized using Docker and produces **backend C++ libraries only** (no GUI).
+
+**What gets built:**
+- Backend library (`libbackend.a`): Core business logic in pure C++
+- Unit tests for backend components
+- **No GUI**: Desktop Qt Widgets are excluded (future mobile UI may use Qt Quick/QML)
+
+**Components included:**
 - Ubuntu 24.04 LTS base system
 - Build tools: CMake, Ninja, GCC/Clang
 - Java: OpenJDK 17
@@ -14,13 +21,13 @@ The Android build is fully containerized using Docker. Everything needed to buil
 
 ## Quick Start
 
-That's literally it:
+Build the backend library for Android:
 
 ```bash
 ./scripts/build/android-build.sh
 ```
 
-This builds a release APK for arm64-v8a (modern Android devices).
+This builds a release version of the backend library for arm64-v8a (modern Android devices).
 
 ### First Build
 - Downloads ~500MB (Android NDK)
