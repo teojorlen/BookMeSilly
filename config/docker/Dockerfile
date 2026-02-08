@@ -283,8 +283,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     \
     # Required system libraries
     libstdc++6 \
-    libncurses5 \
     libncurses6 \
+    libncurses-dev \
     libc6-dev \
     \
     # Download and extraction tools

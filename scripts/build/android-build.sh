@@ -162,7 +162,7 @@ build_with_docker() {
             -f "${PROJECT_ROOT}/config/docker/Dockerfile" \
             -t "bookmesilly:android-builder" \
             --target android-builder \
-            ${DOCKER_BUILD_ARGS:-} \
+            ${DOCKER_BUILD_ARGS:+${DOCKER_BUILD_ARGS}} \
             "${PROJECT_ROOT}"; then
             print_error "Docker image build failed"
             return 1
@@ -228,7 +228,7 @@ build_locally() {
     print_info "Configuring CMake for Android..."
     if ! cmake .. \
         -GNinja \
-        -DCMAKE_BUILD_TYPE=$([ "$BUILD_VARIANT" = "debug" ] && echo "Debug" || echo "Release") \
+        -DCMAKE_BUILD_TYPE="$([ "$BUILD_VARIANT" = "debug" ] && echo "Debug" || echo "Release")" \
         -DCMAKE_SYSTEM_NAME=Android \
         -DCMAKE_SYSTEM_VERSION="34" \
         -DCMAKE_ANDROID_PLATFORM="android-34" \
