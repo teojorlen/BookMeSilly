@@ -39,33 +39,51 @@ ${GREEN}Options:${NC}
   -a, --arch ARCH           Android architecture (default: arm64-v8a)
                             Options: armeabi-v7a, arm64-v8a, x86, x86_64
   --api API                 Android API level (default: 34)
-  -l, --local               Build locally (requires Android NDK/SDK)
+  -l, --local               Build locally (requires Android NDK)
   -h, --help                Display this help message
 
 ${GREEN}Examples:${NC}
-  # Build release APK for arm64-v8a (default)
+  # Build release APK for arm64-v8a using Docker (NDK auto-mounted)
+  # Note: requires ANDROID_NDK environment variable set
   $(basename "$0")
 
-  # Build debug APK for armeabi-v7a
-  $(basename "$0") -v debug -a armeabi-v7a
+  # Build debug APK locally (requires local NDK setup)
+  $(basename "$0") -v debug --local
 
-  # Build locally with hosted Android SDK
-  $(basename "$0") --local -v release
+  # Build for 32-bit ARM
+  $(basename "$0") -a armeabi-v7a
+
+${GREEN}Requirements:${NC}
+  ${YELLOW}Essential:${NC}
+  - Android NDK (v21 or newer) - required for building
+  - CMake 3.22+
+  - Ninja build tool
+  - Java 17+ (OpenJDK)
+
+  ${YELLOW}For Docker builds:${NC}
+  - Docker installed
+  - ANDROID_NDK environment variable pointing to NDK installation
+  - NDK will be mounted read-only to Docker container
+
+  ${YELLOW}For local builds:${NC}
+  - All requirements above installed locally
+
+${GREEN}Setup Instructions${NC}
+  See docs/ANDROID_BUILD.md for:
+  - How to install Android NDK
+  - How to set ANDROID_NDK environment variable
+  - How to build APKs for distribution
+  - APK signing and deployment
 
 ${GREEN}Environment Variables:${NC}
-  ANDROID_HOME              Path to Android SDK (used for local builds)
-  ANDROID_NDK               Path to Android NDK (used for local builds)
+  ANDROID_NDK               Path to Android NDK (required)
+  ANDROID_API               Android API level (default: 34)
+  BUILD_VARIANT             Build type: debug or release
   DOCKER_BUILD_ARGS         Additional Docker build arguments
 
 ${GREEN}Output:${NC}
-  APK files will be generated in:
-  - ./android-build/app/build/outputs/apk/
-
-${GREEN}Requirements:${NC}
-  - Docker (for Docker builds)
-  - Android SDK/NDK with API ${ANDROID_API} (for local builds)
-  - CMake 3.22+
-  - Ninja build tool
+  Build artifacts: ./android-build/
+  Intermediate files: ./android-build/CMakeCache.txt, build.ninja
 
 EOF
 }
@@ -134,48 +152,62 @@ build_with_docker() {
         ${DOCKER_BUILD_ARGS:-} \
         "${PROJECT_ROOT}"; then
         print_error "Docker image build failed"
+        print_error "Unable to build Docker image. For Android builds, you need to set up Android NDK locally."
+        print_info "See docs/ANDROID_BUILD.md for setup instructions."
         return 1
     fi
 
     print_success "Docker image built successfully"
 
-    # Run build in container
+    # Check if ANDROID_NDK is available locally
+    if [[ -z "${ANDROID_NDK:-}" ]]; then
+        print_warning "ANDROID_NDK environment variable not set"
+        print_info "Building Docker image without NDK. For actual APK building, you need:"
+        print_warning "1. Install Android NDK locally"
+        print_warning "2. Set ANDROID_NDK=/path/to/android-ndk"
+        print_warning "3. Mount the NDK directory to Docker"
+        print_info ""
+        print_info "Running container with bash shell for manual setup..."
+        docker run --rm -it \
+            -v "${PROJECT_ROOT}:/build" \
+            -e "ANDROID_NDK=${ANDROID_NDK:-}" \
+            "bookmesilly:android-builder" \
+            bash
+        return 0
+    fi
+
+    # Run build in container with NDK mounted
     print_info "Running build in Docker container..."
     BUILD_OUTPUT_DIR="${PROJECT_ROOT}/android-build"
     mkdir -p "${BUILD_OUTPUT_DIR}"
 
     docker run --rm \
         -v "${PROJECT_ROOT}:/build" \
+        -v "${ANDROID_NDK}:${ANDROID_NDK}:ro" \
         -v "${BUILD_OUTPUT_DIR}:/output" \
-        -e "BUILD_VARIANT=${BUILD_VARIANT}" \
-        -e "ANDROID_ARCH=${ANDROID_ARCH}" \
+        -e "ANDROID_NDK=${ANDROID_NDK}" \
         -e "ANDROID_API=${ANDROID_API}" \
+        -e "BUILD_VARIANT=${BUILD_VARIANT}" \
         "bookmesilly:android-builder" \
         bash -c "
             set -e
-            echo 'Starting Android build in container...'
-            mkdir -p /build/android-build
-            cd /build/android-build
+            cd /build
+            mkdir -p android-build
+            cd android-build
 
             # Configure CMake for Android
             cmake .. \
                 -GNinja \
-                -DCMAKE_BUILD_TYPE=$([ '${BUILD_VARIANT}' = 'debug' ] && echo 'Debug' || echo 'Release') \
-                -DCMAKE_TOOLCHAIN_FILE=\${QT_PATH}/cmake/android-toolchain.cmake \
-                -DANDROID_NDK=\${ANDROID_NDK} \
-                -DANDROID_PLATFORM=android-${ANDROID_API} \
-                -DANDROID_ABI=${ANDROID_ARCH} \
-                -DCMAKE_INSTALL_PREFIX=/app
+                -DCMAKE_BUILD_TYPE=\$([ '${BUILD_VARIANT}' = 'debug' ] && echo 'Debug' || echo 'Release') \
+                -DCMAKE_SYSTEM_NAME=Android \
+                -DCMAKE_SYSTEM_VERSION=${ANDROID_API} \
+                -DCMAKE_ANDROID_PLATFORM=android-${ANDROID_API} \
+                -DCMAKE_ANDROID_ABI=${ANDROID_ARCH} \
+                -DCMAKE_ANDROID_NDK=\${ANDROID_NDK} \
+                -DCMAKE_ANDROID_STL=c++_shared
 
             echo 'Building with Ninja...'
             ninja
-            ninja install
-
-            # Copy output to mounted volume
-            echo 'Copying build artifacts...'
-            if [ -d build/app/outputs/apk ]; then
-                cp -r build/app/outputs/apk /output/ || true
-            fi
 
             echo 'Build complete!'
         " || {
@@ -189,41 +221,64 @@ build_with_docker() {
 
 build_locally() {
     print_info "Building Android APK locally"
-    print_warning "This requires Android SDK/NDK and build tools to be installed"
+    print_info "This requires Android NDK to be installed and configured"
 
     # Validate environment
-    if [[ -z "${ANDROID_HOME:-}" ]]; then
-        print_error "ANDROID_HOME environment variable not set"
-        print_info "Please set ANDROID_HOME to your Android SDK installation path"
-        return 1
-    fi
-
     if [[ -z "${ANDROID_NDK:-}" ]]; then
         print_error "ANDROID_NDK environment variable not set"
-        print_info "Please set ANDROID_NDK to your Android NDK installation path"
+        print_info ""
+        print_info "Setup steps:"
+        print_info "1. Download Android NDK from: https://developer.android.com/ndk/downloads"
+        print_info "2. Extract to a location (e.g., ~/Android/ndk)"
+        print_info "3. Set environment variable:"
+        print_info "   export ANDROID_NDK=~/Android/ndk/android-ndk-r26"
+        print_info ""
+        print_info "Then run:"
+        print_info "  $(basename "$0") --local"
         return 1
     fi
 
-    print_info "ANDROID_HOME: ${ANDROID_HOME}"
+    if ! [[ -d "${ANDROID_NDK}" ]]; then
+        print_error "ANDROID_NDK directory does not exist: ${ANDROID_NDK}"
+        return 1
+    fi
+
+    if ! command -v cmake &>/dev/null; then
+        print_error "CMake not found. Please install CMake:"
+        print_info "  Ubuntu/Debian: sudo apt-get install cmake"
+        print_info "  macOS: brew install cmake"
+        return 1
+    fi
+
+    if ! command -v ninja &>/dev/null; then
+        print_error "Ninja not found. Please install Ninja:"
+        print_info "  Ubuntu/Debian: sudo apt-get install ninja-build"
+        print_info "  macOS: brew install ninja"
+        return 1
+    fi
+
     print_info "ANDROID_NDK: ${ANDROID_NDK}"
+    print_info "ANDROID_API: ${ANDROID_API}"
+    print_info "Architecture: ${ANDROID_ARCH}"
+    print_info "Variant: ${BUILD_VARIANT}"
 
     BUILD_DIR="${PROJECT_ROOT}/android-build"
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
     print_info "Configuring CMake for Android..."
-    cmake .. \
+    if ! cmake .. \
         -GNinja \
         -DCMAKE_BUILD_TYPE=$([ "$BUILD_VARIANT" = "debug" ] && echo "Debug" || echo "Release") \
-        -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK}/build/cmake/android.toolchain.cmake" \
-        -DANDROID_SDK_ROOT="${ANDROID_HOME}" \
-        -DANDROID_NDK="${ANDROID_NDK}" \
-        -DANDROID_PLATFORM="android-${ANDROID_API}" \
-        -DANDROID_ABI="${ANDROID_ARCH}" \
-        -DCMAKE_INSTALL_PREFIX=/app || {
+        -DCMAKE_SYSTEM_NAME=Android \
+        -DCMAKE_SYSTEM_VERSION="${ANDROID_API}" \
+        -DCMAKE_ANDROID_PLATFORM="android-${ANDROID_API}" \
+        -DCMAKE_ANDROID_ABI="${ANDROID_ARCH}" \
+        -DCMAKE_ANDROID_NDK="${ANDROID_NDK}" \
+        -DCMAKE_ANDROID_STL=c++_shared; then
         print_error "CMake configuration failed"
         return 1
-    }
+    fi
 
     print_info "Building with Ninja..."
     if ! ninja; then
@@ -231,14 +286,8 @@ build_locally() {
         return 1
     fi
 
-    print_info "Installing artifacts..."
-    if ! ninja install; then
-        print_error "Installation failed"
-        return 1
-    fi
-
     print_success "Local Android build completed"
-    print_info "Output directory: ${BUILD_DIR}"
+    print_info "Build directory: ${BUILD_DIR}"
 }
 
 # Parse arguments
@@ -279,6 +328,25 @@ done
 print_info "BookMeSilly Android Build"
 print_info "Project root: ${PROJECT_ROOT}"
 
+if [[ -z "${ANDROID_NDK:-}" ]] && $USE_DOCKER; then
+    print_warning "ANDROID_NDK environment variable not set"
+    print_info ""
+    print_info "To build Android APKs, you need to:"
+    print_info ""
+    print_info "1. Install Android NDK from:"
+    print_info "   https://developer.android.com/ndk/downloads"
+    print_info ""
+    print_info "2. Set the environment variable:"
+    print_info "   export ANDROID_NDK=/path/to/android-ndk"
+    print_info ""
+    print_info "3. Run this script again:"
+    print_info "   ./scripts/build/android-build.sh"
+    print_info ""
+    print_info "Or run locally with: ./scripts/build/android-build.sh --local"
+    print_info ""
+    exit 1
+fi
+
 if $USE_DOCKER; then
     build_with_docker || exit 1
 else
@@ -287,6 +355,4 @@ fi
 
 print_success "Build process completed successfully!"
 print_info "Next steps:"
-print_info "1. Test the APK on an Android device or emulator"
-print_info "2. For release builds, sign the APK with your keystore"
-print_info "3. Upload to Google Play Store or distribute directly"
+print_info "  See docs/ANDROID_BUILD.md for APK signing and deployment"

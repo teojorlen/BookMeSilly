@@ -17,82 +17,178 @@ The Android build configuration adds a new `android-builder` Docker stage to the
 
 ## Quick Start
 
-### Using Docker (Recommended)
+### Prerequisites
+
+Before you can build for Android, you need to install Android NDK:
+
+1. **Download Android NDK**: Get the latest LTS version from https://developer.android.com/ndk/downloads
+2. **Extract**: Save to a location like `~/Android/ndk`
+3. **Set Environment Variable**: 
+   ```bash
+   export ANDROID_NDK=~/Android/ndk
+   ```
+
+### Building (with Docker)
+
+Once you have `ANDROID_NDK` set, building is simple:
 
 ```bash
-# Build release APK for arm64-v8a (default)
+# Build release APK for arm64-v8a (most devices)
 ./scripts/build/android-build.sh
 
-# Build debug APK for 32-bit ARM
+# Build debug APK for 32-bit ARM (older devices)
 ./scripts/build/android-build.sh -v debug -a armeabi-v7a
 
-# Build for x86_64 architecture
+# Build for x86_64 (emulators, some tablets)
 ./scripts/build/android-build.sh -a x86_64
 ```
 
-### Local Build (Advanced)
+The script automatically:
+- Uses Docker to provide a clean build environment
+- Mounts your NDK directory into the container
+- Configures CMake with Android cross-compilation settings
+- Builds the native code
 
-If you have Android SDK/NDK installed locally:
+### Building Locally (Alternative)
+
+If you prefer not to use Docker:
 
 ```bash
-# Ensure environment variables are set
-export ANDROID_HOME=/path/to/android-sdk
-export ANDROID_NDK=/path/to/android-ndk
+# Ensure ANDROID_NDK is set
+export ANDROID_NDK=~/Android/ndk
 
 # Run local build
 ./scripts/build/android-build.sh --local
 ```
 
-## Architecture Decision
+This approach uses your local build tools instead of Docker.
 
-The Android configuration is implemented as a separate Docker stage (`android-builder`) rather than modifying the existing `builder` stage for several reasons:
+## Setup Instructions
 
-1. **Isolation**: Android-specific tools (NDK, SDK) are isolated from the main C++ development environment
-2. **Efficiency**: Main builder stage remains lean and fast for regular CI/CD builds
-3. **Flexibility**: Developers can choose to build for Android without pulling all Android tools
-4. **Scalability**: Android tools can be updated independently from the main build environment
-5. **Storage**: Large Android SDK/NDK (~3-4GB) doesn't bloat the default builder image
+### Installing Android NDK
+
+#### Linux
+
+```bash
+# Create Android directory
+mkdir -p ~/Android/ndk
+
+# Download (check for latest version at developer.android.com/ndk/downloads)
+wget https://dl.google.com/android/repository/android-ndk-r26-linux.zip
+
+# Extract
+unzip android-ndk-r26-linux.zip
+mv android-ndk-r26 ~/Android/ndk/
+
+# Set environment variable
+export ANDROID_NDK=~/Android/ndk
+```
+
+#### macOS
+
+```bash
+# Using Homebrew (recommended)
+brew install android-ndk
+
+# Then find the path:
+echo "$(brew --prefix)/share/android-ndk"
+
+# Set environment variable  
+export ANDROID_NDK="$(brew --prefix)/share/android-ndk"
+```
+
+Or download from: https://developer.android.com/ndk/downloads
+
+#### Windows
+
+1. Download from https://developer.android.com/ndk/downloads
+2. Extract to a location (e.g., `C:\Android\ndk`)
+3. Set environment variable in PowerShell:
+   ```powershell
+   [Environment]::SetEnvironmentVariable("ANDROID_NDK", "C:\Android\ndk", "User")
+   ```
+
+### Install Build Dependencies
+
+#### Ubuntu/Debian
+```bash
+sudo apt-get update
+sudo apt-get install -y \
+  build-essential \
+  cmake \
+  ninja-build \
+  openjdk-17-jdk \
+  python3-dev
+```
+
+#### macOS
+```bash
+brew install cmake ninja openjdk@17
+```
+
+### Verify Installation
+
+```bash
+# Check NDK
+$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --version
+
+# Check CMake
+cmake --version
+
+# Check Ninja
+ninja --version
+```
 
 ## Android Build Process
 
-### Stage 1: Environment Setup
+The `android-builder` Docker stage provides a clean environment that:
+1. Contains essential build tools (CMake, Ninja, GCC toolchain)
+2. Has OpenJDK for any Android-specific tooling
+3. Accepts your local Android NDK via volume mount
+4. Configures CMake for Android cross-compilation
 
-The `android-builder` stage performs:
+### Docker Build Step-by-Step
 
-```dockerfile
-FROM ubuntu:24.04 AS android-builder
-```
+When you run `./scripts/build/android-build.sh`:
 
-- Installs build essentials and CMake/Ninja
-- Installs OpenJDK 17 for Android build system
-- Creates Android SDK directory structure
-- Downloads Android SDK command-line tools
+1. **Build Docker Image** (first time only)
+   - Creates `bookmesilly:android-builder` image
+   - Installs build tools (~200MB)
+   - Takes ~30 seconds on subsequent runs (cached)
 
-### Stage 2: SDK/NDK Installation
+2. **Mount NDK Directory**
+   - Your local NDK is mounted into the container
+   - Accessed as read-only for extra safety
 
-The build stage then:
+3. **Configure CMake**
+   - Sets up Android-specific CMake variables
+   - Configures cross-compilation toolchain
+   - Selects architecture (arm64-v8a, armeabi-v7a, x86, x86_64)
 
-- Downloads Android SDK command-line tools from Google's official repository
-- Accepts Android licenses programmatically
-- Installs Android API 34 platform and build-tools
-- Installs Android NDK (version 26.1)
-- Sets up environment variables
+4. **Compile**
+   - Builds native C++ code for Android
+   - Generates native binaries for target architecture
+   - Full build takes ~2-5 minutes depending on code size
 
-### Stage 3: Qt Configuration
+### Local Build (Without Docker)
 
-Prepares Qt for Android:
+When using`--local` flag:
 
-- Downloads Qt source code for Android cross-compilation
-- Creates CMake toolchain file for Android builds
-- Configures Android-specific CMake variables
+1. Uses your system CMake directly
+2. Uses your system compilers (GCC/Clang)
+3. Accesses NDK from `$ANDROID_NDK` environment variable
+4. Builds in your local `/build` directory
 
-### Stage 4: Build Script
+## Architecture Decision
 
-Provides `build-apk.sh` utility that:
+Why use a lightweight Docker stage rather than pre-built Docker image?
 
-- Configures CMake with Android toolchain
-- Compiles native code to ARM/x86 architectures
-- Packages APK file ready for deployment
+1. **No Redundant Downloads**: Android NDK is huge (1-2GB). You only download it once and reuse locally.
+2. **Fast Iteration**: Mount the same NDK for multiple builds. No Docker image bloat.
+3. **Developer Control**: Developers manage their NDK version independently.
+4. **Bandwidth Efficiency**: Perfect for CI systems that cache NDK separately.
+5. **Offline Builds**: Works with cached NDK even without internet.
+6. **Simplicity**: Main Dockerfile stays focused on core C++ building.
 
 ## Supported Architectures
 
