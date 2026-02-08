@@ -253,20 +253,22 @@ exec /workspace/build/app "$@"\n\
 CMD ["/bin/bash"]
 
 # ============================================================================
-# Stage 5: Android Builder (Cross-compilation environment)
-# Note: This stage requires Android SDK/NDK to be pre-installed locally
-# or uses builder stage output. See docs/ANDROID_BUILD.md for setup.
+# Stage 5: Android Builder with NDK
+# Complete Android development environment with NDK pre-installed
 # ============================================================================
 FROM ubuntu:24.04 AS android-builder
 
 LABEL maintainer="BookMeSilly"
-LABEL description="BookMeSilly Android Build Environment Base"
+LABEL description="BookMeSilly Android Build Environment - Complete with NDK"
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
-    LC_ALL=C.UTF-8
+    LC_ALL=C.UTF-8 \
+    ANDROID_HOME=/opt/android \
+    ANDROID_NDK_VERSION=r26 \
+    ANDROID_API=34
 
-# Install base dependencies for Android development
+# Install dependency packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Build tools
     build-essential \
@@ -275,68 +277,125 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     pkg-config \
     \
-    # Java for Android tooling
+    # Java for Android (NDK tooling uses Java)
     openjdk-17-jdk \
+    openjdk-17-jre \
     \
-    # Required libraries
+    # Required system libraries
     libstdc++6 \
     libncurses5 \
     libncurses6 \
+    libc6-dev \
     \
-    # Additional tools
+    # Download and extraction tools
     curl \
     wget \
     unzip \
-    python3 \
     \
+    # Additional utilities
+    python3 \
+    git \
+    \
+    # Cleanup
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-# Set Java home
+# Set Java and path environment
 ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
-    PATH=$PATH:/usr/lib/jvm/java-17-openjdk-amd64/bin
+    PATH=$JAVA_HOME/bin:/opt/android/ndk/bin:$PATH
 
-# Create project workspace
+# Create Android home directory
+RUN mkdir -p ${ANDROID_HOME}/ndk
+
+# Download and extract Android NDK
+# Note: This layer will be cached after first build, making subsequent builds fast
+RUN cd ${ANDROID_HOME} && \
+    echo "Downloading Android NDK ${ANDROID_NDK_VERSION}..." && \
+    wget -q https://dl.google.com/android/repository/android-ndk-${ANDROID_NDK_VERSION}-linux.zip && \
+    echo "Extracting Android NDK..." && \
+    unzip -q android-ndk-${ANDROID_NDK_VERSION}-linux.zip && \
+    rm android-ndk-${ANDROID_NDK_VERSION}-linux.zip && \
+    mv android-ndk-${ANDROID_NDK_VERSION} ndk/android-ndk && \
+    ln -s ${ANDROID_HOME}/ndk/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin ${ANDROID_HOME}/ndk/bin && \
+    echo "Android NDK installation complete"
+
+# Set NDK path
+ENV ANDROID_NDK=${ANDROID_HOME}/ndk/android-ndk
+
+# Copy project source
 WORKDIR /build
 COPY . /build/
 
 # Create build directory
-RUN mkdir -p /build/build
+RUN mkdir -p /build/android-build
 
-# Script to run Android builds when SDK/NDK are available
-RUN echo '#!/bin/bash\n\
-set -e\n\
-echo "Android Build Environment Setup"\n\
-echo "==============================="\n\
-if [ -z "$ANDROID_NDK" ]; then\n\
-    echo "Error: ANDROID_NDK environment variable not set"\n\
-    echo ""\n\
-    echo "To set up Android builds:"\n\
-    echo "  export ANDROID_NDK=/path/to/android-ndk"\n\
-    echo "  export ANDROID_API=34"\n\
-    exit 1\n\
-fi\n\
-\n\
-BUILD_DIR="${PWD}/android-build"\n\
-BUILD_TYPE=${1:-Release}\n\
-ABI=${2:-arm64-v8a}\n\
-\n\
-mkdir -p "$BUILD_DIR"\n\
-cd "$BUILD_DIR"\n\
-\n\
-cmake .. \\\n\
-    -GNinja \\\n\
-    -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \\\n\
-    -DCMAKE_SYSTEM_NAME=Android \\\n\
-    -DCMAKE_SYSTEM_VERSION=$((ANDROID_API:=34)) \\\n\
-    -DCMAKE_ANDROID_PLATFORM=android-$ANDROID_API \\\n\
-    -DCMAKE_ANDROID_ABI="$ABI" \\\n\
-    -DCMAKE_ANDROID_NDK="$ANDROID_NDK" \\\n\
-    -DCMAKE_ANDROID_STL=c++_shared\n\
-\n\
-ninja\n\
-' > /usr/local/bin/build-android.sh && \
-    chmod +x /usr/local/bin/build-android.sh
+# Create build script for Android
+RUN install -m 755 /dev/stdin /usr/local/bin/build-android.sh << 'EOF'
+#!/bin/bash
+set -e
+
+# Colors for output
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+BUILD_TYPE=${1:-Release}
+ANDROID_ABI=${2:-arm64-v8a}
+BUILD_DIR="/build/android-build"
+
+echo -e "${BLUE}Android Build Configuration${NC}"
+echo "Build type: $BUILD_TYPE"
+echo "Architecture: $ANDROID_ABI"
+echo "Android NDK: $ANDROID_NDK"
+echo "Android API: $ANDROID_API"
+echo ""
+
+mkdir -p "$BUILD_DIR"
+cd "$BUILD_DIR"
+
+echo -e "${BLUE}Configuring CMake for Android...${NC}"
+cmake .. \
+    -GNinja \
+    -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
+    -DCMAKE_SYSTEM_NAME=Android \
+    -DCMAKE_SYSTEM_VERSION=$ANDROID_API \
+    -DCMAKE_ANDROID_PLATFORM=android-$ANDROID_API \
+    -DCMAKE_ANDROID_ABI="$ANDROID_ABI" \
+    -DCMAKE_ANDROID_NDK="$ANDROID_NDK" \
+    -DCMAKE_ANDROID_STL=c++_shared
+
+echo -e "${BLUE}Building with Ninja...${NC}"
+ninja
+
+echo -e "${GREEN}Build complete!${NC}"
+echo "Output: $BUILD_DIR"
+EOF
+
+# Create info script
+RUN install -m 755 /dev/stdin /usr/local/bin/android-info.sh << 'EOF'
+#!/bin/bash
+echo "Android Build Environment Initialized"
+echo "====================================="
+echo "Android Home: $ANDROID_HOME"
+echo "Android NDK: $ANDROID_NDK"
+echo "Android API: $ANDROID_API"
+echo "Java Home: $JAVA_HOME"
+echo ""
+echo "To build an APK:"
+echo "  build-android.sh [Release|Debug] [arm64-v8a|armeabi-v7a|x86|x86_64]"
+echo ""
+echo "Examples:"
+echo "  build-android.sh Release arm64-v8a"
+echo "  build-android.sh Debug armeabi-v7a"
+EOF
+
+# Verify NDK installation
+RUN if [ ! -d "$ANDROID_NDK" ]; then \
+        echo "ERROR: Android NDK not found at $ANDROID_NDK"; \
+        exit 1; \
+    fi && \
+    echo "Android NDK verified at $ANDROID_NDK"
 
 # Default command
 CMD ["/bin/bash"]
