@@ -1,8 +1,8 @@
-# Build directories
-build/
-bin/
-out/
-reports/
+# Build directories (root only)
+/build/
+/bin/
+/out/
+/reports/
 
 # Compiled files
 *.o

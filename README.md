@@ -9,6 +9,7 @@ An open source audio book player with high performance and cross-platform suppor
 - **[Dependencies](docs/setup/DEPENDENCIES.md)** - Required packages and libraries
 - **[Docker Guide](docs/docker/DOCKER.md)** - Container setup and usage
 - **[CI/CD Setup](docs/ci/CI_SETUP.md)** - Continuous integration configuration
+- **[Android Build](docs/ANDROID_BUILD.md)** - Android APK build and deployment
 
 ## Features
 
@@ -55,6 +56,20 @@ make run-security-scan
 make help
 ```
 
+### Android Build
+```bash
+# Build release APK for Android
+./scripts/build/android-build.sh
+
+# Build debug APK with 32-bit ARM support
+./scripts/build/android-build.sh -v debug -a armeabi-v7a
+
+# For more options
+./scripts/build/android-build.sh --help
+```
+
+See [docs/ANDROID_BUILD.md](docs/ANDROID_BUILD.md) for comprehensive Android build guide.
+
 ## Project Organization
 
 The project uses a concern-based organization:
@@ -87,6 +102,7 @@ Comprehensive documentation is available in the `docs/` directory:
 
 - **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** - Full project structure and design decisions
 - **[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)** - Contribution guidelines
+- **[docs/ANDROID_BUILD.md](docs/ANDROID_BUILD.md)** - Android APK build configuration and deployment
 - **[docs/ci/](docs/ci/)** - CI/CD workflow and setup
 - **[docs/docker/](docs/docker/)** - Docker usage and configuration
 - **[docs/setup/](docs/setup/)** - Setup and dependencies
