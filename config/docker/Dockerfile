@@ -28,7 +28,9 @@ RUN apt-get update && apt-get install -y \
     \
     # Code analysis and scripting
     cppcheck \
+    shellcheck \
     python3 \
+    python3-pip \
     \
     # Qt6 development packages
     qt6-base-dev \
@@ -76,6 +78,11 @@ RUN apt-get update && apt-get install -y \
 
 # Install grype for vulnerability scanning
 RUN curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+
+# Install Python linting tools via apt
+RUN apt-get update && apt-get install -y \
+    pylint \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create build directory
 WORKDIR /build

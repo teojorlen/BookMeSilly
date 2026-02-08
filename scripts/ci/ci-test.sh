@@ -2,7 +2,8 @@
 ################################################################################
 # BookMeSilly Local CI Pipeline
 # Run this script locally before pushing to verify the build works
-# Usage: ./scripts/ci-test.sh [--no-cleanup]
+# Usage: ./scripts/ci-test.sh [stages...] [--no-cleanup]
+# Stages: all, setup, builder, tests, production, slim, verify (default: all)
 ################################################################################
 
 set -e  # Exit on error
@@ -10,27 +11,141 @@ set -e  # Exit on error
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CLEANUP=true
+STAGES=()
+
+# Valid stages
+VALID_STAGES=("setup" "builder" "tests" "production" "slim" "verify")
 
 # Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+RED=$'\033[0;31m'
+GREEN=$'\033[0;32m'
+YELLOW=$'\033[1;33m'
+BLUE=$'\033[0;34m'
+NC=$'\033[0m' # No Color
+
+print_usage() {
+    cat <<EOF
+${BLUE}BookMeSilly Local CI Pipeline${NC}
+
+${GREEN}Usage:${NC}
+  ./scripts/ci-test.sh [stages...] [--no-cleanup]
+
+${GREEN}Stages:${NC}
+  setup       - Verify prerequisites (Docker, files)
+  builder     - Build builder image
+  tests       - Run tests (requires: builder)
+  production  - Build production image (requires: builder)
+  slim        - Build slim image (requires: builder)
+  verify      - Verify Docker images (requires: production, slim)
+  all         - Run all stages (default)
+
+${GREEN}Options:${NC}
+  --no-cleanup  - Keep Docker images after completion
+  -h, --help    - Show this help message
+
+${GREEN}Examples:${NC}
+  ./scripts/ci-test.sh                    # Run all stages (default)
+  ./scripts/ci-test.sh all                # Run all stages
+  ./scripts/ci-test.sh tests              # Run tests (builder auto-added)
+  ./scripts/ci-test.sh builder tests      # Run builder and tests
+  ./scripts/ci-test.sh tests --no-cleanup # Run tests, keep images
+
+${YELLOW}Note:${NC} Stage dependencies are automatically added. For example,
+running 'tests' alone will automatically add 'builder' if needed.
+
+EOF
+}
+
+# Check if a stage should be run
+should_run_stage() {
+    local stage=$1
+    for s in "${STAGES[@]}"; do
+        if [ "$s" = "$stage" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Add stage dependencies to STAGES array
+add_stage_dependencies() {
+    local modified=false
+    
+    # Tests depends on builder
+    if should_run_stage "tests" && ! should_run_stage "builder"; then
+        STAGES+=("builder")
+        modified=true
+    fi
+    
+    # Production depends on builder
+    if should_run_stage "production" && ! should_run_stage "builder"; then
+        STAGES+=("builder")
+        modified=true
+    fi
+    
+    # Slim depends on builder
+    if should_run_stage "slim" && ! should_run_stage "builder"; then
+        STAGES+=("builder")
+        modified=true
+    fi
+    
+    # Verify depends on production and slim
+    if should_run_stage "verify"; then
+        if ! should_run_stage "production"; then
+            STAGES+=("production")
+            modified=true
+        fi
+        if ! should_run_stage "slim"; then
+            STAGES+=("slim")
+            modified=true
+        fi
+    fi
+    
+    # Re-sort to remove duplicates and ensure proper order
+    if [ "$modified" = true ]; then
+        mapfile -t STAGES < <(printf '%s\n' "${STAGES[@]}" | sort -u)
+    fi
+}
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
+        -h|--help)
+            print_usage
+            exit 0
+            ;;
         --no-cleanup)
             CLEANUP=false
             shift
             ;;
+        all)
+            STAGES=("${VALID_STAGES[@]}")
+            shift
+            ;;
+        setup|builder|tests|production|slim|verify)
+            STAGES+=("$1")
+            shift
+            ;;
         *)
-            echo "Unknown option: $1"
+            echo -e "${RED}Unknown option or stage: $1${NC}"
+            print_usage
             exit 1
             ;;
     esac
 done
+
+# Default to all stages if none specified
+if [ ${#STAGES[@]} -eq 0 ]; then
+    STAGES=("${VALID_STAGES[@]}")
+fi
+
+# Remove duplicates from STAGES
+mapfile -t STAGES < <(printf '%s\n' "${STAGES[@]}" | sort -u)
+
+# Add stage dependencies
+add_stage_dependencies
+
+
 
 # Cleanup function
 cleanup() {
@@ -44,6 +159,8 @@ cleanup() {
 
 # Trap to cleanup on exit
 trap cleanup EXIT
+
+
 
 print_header() {
     echo -e "\n${BLUE}===================================================${NC}"
@@ -69,10 +186,12 @@ cd "$PROJECT_ROOT"
 # Header
 # ============================================================================
 print_header "BookMeSilly Local CI Pipeline"
+echo -e "${GREEN}Running stages:${NC} $(IFS=, ; echo "${STAGES[*]}")\n"
 
 # ============================================================================
 # Stage 1: Setup Check
 # ============================================================================
+if should_run_stage "setup"; then
 print_section "Stage 1: Checking prerequisites..."
 
 if ! command -v docker &> /dev/null; then
@@ -95,10 +214,14 @@ if ! [ -f "CMakeLists.txt" ]; then
     exit 1
 fi
 print_success "CMakeLists.txt found"
+else
+    echo -e "${YELLOW}⊘ Skipping setup stage${NC}"
+fi
 
 # ============================================================================
 # Stage 2: Build - Builder Image
 # ============================================================================
+if should_run_stage "builder"; then
 print_section "Stage 2: Building builder image..."
 if docker build --target builder -t bookme-silly:ci-builder -f config/docker/Dockerfile . > /dev/null 2>&1; then
     print_success "Builder image built successfully"
@@ -108,10 +231,14 @@ else
     print_error "Failed to build builder image"
     exit 1
 fi
+else
+    echo -e "${YELLOW}⊘ Skipping builder stage${NC}"
+fi
 
 # ============================================================================
 # Stage 3: Tests
 # ============================================================================
+if should_run_stage "tests"; then
 print_section "Stage 3: Running tests..."
 set +e
 TEST_OUTPUT=$(docker run --rm \
@@ -128,10 +255,14 @@ else
     echo "$TEST_OUTPUT"
     exit 1
 fi
+else
+    echo -e "${YELLOW}⊘ Skipping tests stage${NC}"
+fi
 
 # ============================================================================
 # Stage 4: Build - Production Image
 # ============================================================================
+if should_run_stage "production"; then
 print_section "Stage 4: Building production image..."
 if docker build --target production -t bookme-silly:ci-production -f config/docker/Dockerfile . > /dev/null 2>&1; then
     print_success "Production image built successfully"
@@ -141,10 +272,14 @@ else
     print_error "Failed to build production image"
     exit 1
 fi
+else
+    echo -e "${YELLOW}⊘ Skipping production stage${NC}"
+fi
 
 # ============================================================================
 # Stage 5: Build - Slim Image
 # ============================================================================
+if should_run_stage "slim"; then
 print_section "Stage 5: Building slim image..."
 if docker build -f config/docker/Dockerfile.slim -t bookme-silly:ci-slim . > /dev/null 2>&1; then
     print_success "Slim image built successfully"
@@ -154,10 +289,14 @@ else
     print_error "Failed to build slim image"
     exit 1
 fi
+else
+    echo -e "${YELLOW}⊘ Skipping slim stage${NC}"
+fi
 
 # ============================================================================
 # Stage 6: Verification
 # ============================================================================
+if should_run_stage "verify"; then
 print_section "Stage 6: Verifying images..."
 
 # Check production image has the binary
@@ -185,18 +324,31 @@ else
     print_error "Slim image missing executable"
     exit 1
 fi
+else
+    echo -e "${YELLOW}⊘ Skipping verify stage${NC}"
+fi
 
 # ============================================================================
 # Final Summary
 # ============================================================================
-print_header "CI Pipeline Complete - All Checks Passed!"
+print_header "CI Pipeline Complete - Selected Stages Passed!"
 
 echo -e "${GREEN}Summary:${NC}"
-echo "  Builder Image Size:     $BUILDER_SIZE"
-echo "  Production Image Size:  $PROD_SIZE"
-echo "  Slim Image Size:        $SLIM_SIZE"
-echo "  Tests:                  PASSED ✓"
-echo "  Binary Verification:    PASSED ✓"
+if should_run_stage "builder"; then
+    echo "  Builder Image Size:     ${BUILDER_SIZE:-N/A}"
+fi
+if should_run_stage "production"; then
+    echo "  Production Image Size:  ${PROD_SIZE:-N/A}"
+fi
+if should_run_stage "slim"; then
+    echo "  Slim Image Size:        ${SLIM_SIZE:-N/A}"
+fi
+if should_run_stage "tests"; then
+    echo "  Tests:                  PASSED ✓"
+fi
+if should_run_stage "verify"; then
+    echo "  Binary Verification:    PASSED ✓"
+fi
 
 echo -e "\n${GREEN}Ready to push changes!${NC}\n"
 
