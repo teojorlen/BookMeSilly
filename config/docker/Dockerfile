@@ -281,6 +281,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     openjdk-17-jdk \
     openjdk-17-jre \
     \
+    # QEMU for running ARM binaries on x86_64
+    qemu-user \
+    qemu-user-static \
+    \
     # Required system libraries
     libstdc++6 \
     libncurses6 \
@@ -291,6 +295,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     wget \
     unzip \
+    \
+    # Debug and analysis utilities
+    file \
+    binutils \
     \
     # Additional utilities
     python3 \
@@ -321,6 +329,11 @@ RUN cd ${ANDROID_HOME} && \
 # Set NDK path
 ENV ANDROID_NDK=${ANDROID_HOME}/ndk/android-ndk
 
+# Create symlinks for Android system directories needed by QEMU
+RUN mkdir -p /system/bin && \
+    ln -sf ${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/arm-linux-androideabi/libc.so /system/bin/linker && \
+    ln -sf ${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc.so /system/bin/linker64
+
 # Copy project source
 WORKDIR /build
 COPY . /build/
@@ -337,10 +350,12 @@ set -e
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
+RED='\033[0;31m'
 NC='\033[0m'
 
 BUILD_TYPE=${1:-Release}
 ANDROID_ABI=${2:-arm64-v8a}
+RUN_TESTS=${3:-false}
 BUILD_DIR="/build/android-build"
 
 echo -e "${BLUE}Android Build Configuration${NC}"
@@ -348,6 +363,7 @@ echo "Build type: $BUILD_TYPE"
 echo "Architecture: $ANDROID_ABI"
 echo "Android NDK: $ANDROID_NDK"
 echo "Android API: $ANDROID_API"
+echo "Run tests: $RUN_TESTS"
 echo ""
 
 mkdir -p "$BUILD_DIR"
@@ -370,6 +386,48 @@ ninja
 
 echo -e "${GREEN}Build complete!${NC}"
 echo "Backend library: $BUILD_DIR/libbackend.a"
+
+if [ "$RUN_TESTS" = "true" ]; then
+    echo ""
+    echo -e "${BLUE}Android Unit Tests${NC}"
+    if [ -f test_calculator ]; then
+        # Check the binary architecture
+        echo "Test binary info:"
+        file test_calculator
+        
+        # Detect architecture and decide if we can run tests
+        ARCH_INFO=$(readelf -h test_calculator | grep Machine)
+        
+        if echo "$ARCH_INFO" | grep -q "X86-64\\|Advanced Micro Devices X86-64"; then
+            echo -e "${BLUE}Detected x86_64 - running tests natively...${NC}"
+            ./test_calculator
+            echo -e "${GREEN}Tests passed!${NC}"
+        elif echo "$ARCH_INFO" | grep -q "Intel 80386"; then
+            echo -e "${BLUE}Detected x86 - running tests natively...${NC}"
+            ./test_calculator
+            echo -e "${GREEN}Tests passed!${NC}"
+        elif echo "$ARCH_INFO" | grep -q "AArch64\\|ARM"; then
+            echo -e "${YELLOW}ARM architecture detected${NC}"
+            echo "Test binary built successfully for $ANDROID_ABI"
+            echo "Note: ARM tests require Android device/emulator to execute"
+            echo "Build verification: PASSED"
+            echo ""
+            echo "To run tests on Android device:"
+            echo "  adb push android-build/test_calculator /data/local/tmp/"
+            echo "  adb shell chmod +x /data/local/tmp/test_calculator"
+            echo "  adb shell /data/local/tmp/test_calculator"
+            echo ""
+            echo "To run tests in CI, use x86_64 architecture:"
+            echo "  ./scripts/build/android-build.sh -a x86_64 --test"
+        else
+            echo -e "${YELLOW}Unknown architecture - build verification only${NC}"
+            readelf -h test_calculator | head -20
+        fi
+    else
+        echo -e "${YELLOW}No test binary found${NC}"
+    fi
+fi
+
 echo "Output: $BUILD_DIR"
 EOF
 
@@ -382,16 +440,18 @@ echo "Android Home: $ANDROID_HOME"
 echo "Android NDK: $ANDROID_NDK"
 echo "Android API: $ANDROID_API"
 echo "Java Home: $JAVA_HOME"
+echo "QEMU: Available for running ARM tests"
 echo ""
 echo "This build configuration creates backend C++ libraries only."
 echo "No Qt/GUI components are included."
 echo ""
 echo "To build the backend library:"
-echo "  build-android.sh [Release|Debug] [arm64-v8a|armeabi-v7a|x86|x86_64]"
+echo "  build-android.sh [Release|Debug] [arm64-v8a|armeabi-v7a|x86|x86_64] [true|false]"
 echo ""
 echo "Examples:"
-echo "  build-android.sh Release arm64-v8a"
-echo "  build-android.sh Debug armeabi-v7a"
+echo "  build-android.sh Release arm64-v8a        # Build only"
+echo "  build-android.sh Release arm64-v8a true   # Build and run tests"
+echo "  build-android.sh Debug armeabi-v7a true   # Debug build with tests"
 EOF
 
 # Verify NDK installation

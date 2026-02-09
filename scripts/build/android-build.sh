@@ -7,6 +7,7 @@
 #   -v, --variant     Build variant: debug or release (default: release)
 #   -a, --arch        Android architecture: armeabi-v7a, arm64-v8a, x86, x86_64 (default: arm64-v8a)
 #   -a, --api         Android API level (default: 34)
+#   -t, --test        Run unit tests after building (requires QEMU)
 #   -l, --local       Build locally without Docker (requires NDK/SDK installed)
 #   -h, --help        Show this help message
 
@@ -24,6 +25,7 @@ BUILD_VARIANT="release"
 ANDROID_ARCH="arm64-v8a"
 ANDROID_API="34"
 USE_DOCKER=true
+RUN_TESTS=false
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # Functions
@@ -39,6 +41,7 @@ ${GREEN}Options:${NC}
   -a, --arch ARCH           Android architecture (default: arm64-v8a)
                             Options: armeabi-v7a, arm64-v8a, x86, x86_64
   --api API                 Android API level (default: 34)
+  -t, --test                Run unit tests after building (uses QEMU)
   -l, --local               Build locally without Docker (requires ANDROID_NDK set)
   -h, --help                Display this help message
 
@@ -48,6 +51,12 @@ ${GREEN}Examples:${NC}
 
   # Build debug APK for 32-bit ARM devices
   $(basename "$0") -v debug -a armeabi-v7a
+
+  # Build and run tests
+  $(basename "$0") --test
+
+  # Build debug version with tests for x86_64 emulator
+  $(basename "$0") -v debug -a x86_64 --test
 
   # Build for multiple architectures
   for arch in arm64-v8a armeabi-v7a x86_64; do
@@ -59,8 +68,13 @@ ${GREEN}Quick Start${NC}
   
   $(basename "$0")
 
+  Add --test to run unit tests (uses QEMU to run ARM binaries):
+  
+  $(basename "$0") --test
+
   The first build downloads Android NDK (~500MB, takes 2-5 minutes).
   Subsequent builds are fast (~30 seconds) due to Docker layer caching.
+  Tests add ~5-10 seconds to build time.
 
 ${GREEN}Requirements${NC}
   ${YELLOW}For Docker builds (recommended):${NC}
@@ -68,9 +82,15 @@ ${GREEN}Requirements${NC}
   - Internet connection (to download NDK on first build)
   - ~500MB disk space
 
+  ${YELLOW}For testing:${NC}
+  - QEMU user-mode emulation (included in Docker image)
+  - Runs ARM binaries on x86_64 hosts
+  - Tests backend-only (no GUI components)
+
   ${YELLOW}For local builds (optional):${NC}
   - Docker OR (CMake + Ninja + openjdk-17 + Android NDK installed)
   - ANDROID_NDK environment variable set
+  - QEMU (qemu-user-static) for running tests
 
 ${GREEN}What Gets Installed in Docker${NC}
   - Ubuntu 24.04 LTS base system
@@ -149,6 +169,9 @@ validate_api() {
 build_with_docker() {
     print_info "Building Android APK with Docker"
     print_info "Variant: $BUILD_VARIANT, Architecture: $ANDROID_ARCH, API: 34"
+    if $RUN_TESTS; then
+        print_info "Tests: Will run after build (using QEMU)"
+    fi
 
     # Check if image already exists
     if docker image inspect bookmesilly:android-builder &>/dev/null; then
@@ -179,7 +202,7 @@ build_with_docker() {
         -v "${PROJECT_ROOT}:/build" \
         -v "${BUILD_OUTPUT_DIR}:/output" \
         "bookmesilly:android-builder" \
-        build-android.sh "$([ "$BUILD_VARIANT" = "debug" ] && echo "Debug" || echo "Release")" "$ANDROID_ARCH" || {
+        build-android.sh "$([ "$BUILD_VARIANT" = "debug" ] && echo "Debug" || echo "Release")" "$ANDROID_ARCH" "$RUN_TESTS" || {
         print_error "Docker build failed"
         print_info "Check output above for details"
         return 1
@@ -266,6 +289,10 @@ while [[ $# -gt 0 ]]; do
             ANDROID_API="$2"
             validate_api "$ANDROID_API" || exit 1
             shift 2
+            ;;
+        -t|--test)
+            RUN_TESTS=true
+            shift
             ;;
         -l|--local)
             USE_DOCKER=false

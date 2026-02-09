@@ -14,7 +14,7 @@ CLEANUP=true
 STAGES=()
 
 # Valid stages
-VALID_STAGES=("setup" "builder" "tests" "production" "slim" "verify")
+VALID_STAGES=("setup" "builder" "tests" "production" "slim" "verify" "android-builder" "android-build" "android-tests")
 
 # Colors for output
 RED=$'\033[0;31m'
@@ -31,24 +31,28 @@ ${GREEN}Usage:${NC}
   ./scripts/ci-test.sh [stages...] [--no-cleanup]
 
 ${GREEN}Stages:${NC}
-  setup       - Verify prerequisites (Docker, files)
-  builder     - Build builder image
-  tests       - Run tests (requires: builder)
-  production  - Build production image (requires: builder)
-  slim        - Build slim image (requires: builder)
-  verify      - Verify Docker images (requires: production, slim)
-  all         - Run all stages (default)
+  setup          - Verify prerequisites (Docker, files)
+  builder        - Build builder image (desktop)
+  tests          - Run tests (requires: builder)
+  production     - Build production image (requires: builder)
+  slim           - Build slim image (requires: builder)
+  verify         - Verify Docker images (requires: production, slim)
+  android-builder - Build Android builder image with NDK
+  android-build   - Build Android backend (requires: android-builder)
+  android-tests   - Run Android tests (requires: android-build)
+  all            - Run all stages (default)
 
 ${GREEN}Options:${NC}
   --no-cleanup  - Keep Docker images after completion
   -h, --help    - Show this help message
 
 ${GREEN}Examples:${NC}
-  ./scripts/ci-test.sh                    # Run all stages (default)
-  ./scripts/ci-test.sh all                # Run all stages
-  ./scripts/ci-test.sh tests              # Run tests (builder auto-added)
-  ./scripts/ci-test.sh builder tests      # Run builder and tests
-  ./scripts/ci-test.sh tests --no-cleanup # Run tests, keep images
+  ./scripts/ci-test.sh                         # Run all stages (default)
+  ./scripts/ci-test.sh all                     # Run all stages
+  ./scripts/ci-test.sh tests                   # Run tests (builder auto-added)
+  ./scripts/ci-test.sh builder tests           # Run builder and tests
+  ./scripts/ci-test.sh android-build           # Build Android backend
+  ./scripts/ci-test.sh tests --no-cleanup      # Run tests, keep images
 
 ${YELLOW}Note:${NC} Stage dependencies are automatically added. For example,
 running 'tests' alone will automatically add 'builder' if needed.
@@ -101,6 +105,18 @@ add_stage_dependencies() {
         fi
     fi
     
+    # Android-build depends on android-builder
+    if should_run_stage "android-build" && ! should_run_stage "android-builder"; then
+        STAGES+=("android-builder")
+        modified=true
+    fi
+    
+    # Android-tests depends on android-build
+    if should_run_stage "android-tests" && ! should_run_stage "android-build"; then
+        STAGES+=("android-build")
+        modified=true
+    fi
+    
     # Re-sort to remove duplicates and ensure proper order
     if [ "$modified" = true ]; then
         mapfile -t STAGES < <(printf '%s\n' "${STAGES[@]}" | sort -u)
@@ -122,7 +138,7 @@ while [[ $# -gt 0 ]]; do
             STAGES=("${VALID_STAGES[@]}")
             shift
             ;;
-        setup|builder|tests|production|slim|verify)
+        setup|builder|tests|production|slim|verify|android-builder|android-build|android-tests)
             STAGES+=("$1")
             shift
             ;;
@@ -154,6 +170,7 @@ cleanup() {
         docker rmi -f bookme-silly:ci-builder 2>/dev/null || true
         docker rmi -f bookme-silly:ci-production 2>/dev/null || true
         docker rmi -f bookme-silly:ci-slim 2>/dev/null || true
+        docker rmi -f bookme-silly:ci-android-builder 2>/dev/null || true
     fi
 }
 
@@ -297,7 +314,7 @@ fi
 # Stage 6: Verification
 # ============================================================================
 if should_run_stage "verify"; then
-print_section "Stage 6: Verifying images..."
+print_section "Stage 6: Verifying desktop images..."
 
 # Check production image has the binary
 set +e
@@ -329,25 +346,101 @@ else
 fi
 
 # ============================================================================
+# Stage 7: Android Builder Image
+# ============================================================================
+if should_run_stage "android-builder"; then
+print_section "Stage 7: Building Android builder image with NDK..."
+if docker build --target android-builder -t bookme-silly:ci-android-builder -f config/docker/Dockerfile . > /dev/null 2>&1; then
+    print_success "Android builder image built successfully"
+    ANDROID_BUILDER_SIZE=$(docker images bookme-silly:ci-android-builder --format "{{.Size}}")
+    print_success "Android builder image size: $ANDROID_BUILDER_SIZE"
+else
+    print_error "Failed to build Android builder image"
+    exit 1
+fi
+else
+    echo -e "${YELLOW}⊘ Skipping android-builder stage${NC}"
+fi
+
+# ============================================================================
+# Stage 8: Android Backend Build
+# ============================================================================
+if should_run_stage "android-build"; then
+print_section "Stage 8: Building Android backend (arm64-v8a)..."
+set +e
+ANDROID_BUILD_OUTPUT=$(docker run --rm \
+    -v "$PROJECT_ROOT:/build" \
+    bookme-silly:ci-android-builder \
+    build-android.sh Release arm64-v8a false 2>&1)
+ANDROID_BUILD_RESULT=$?
+set -e
+
+if [ $ANDROID_BUILD_RESULT -eq 0 ]; then
+    print_success "Android backend built successfully"
+    echo "$ANDROID_BUILD_OUTPUT" | grep -E "(Build complete|Backend library)" || true
+else
+    print_error "Android build failed"
+    echo "$ANDROID_BUILD_OUTPUT"
+    exit 1
+fi
+else
+    echo -e "${YELLOW}⊘ Skipping android-build stage${NC}"
+fi
+
+# ============================================================================
+# Stage 9: Android Tests
+# ============================================================================
+if should_run_stage "android-tests"; then
+print_section "Stage 9: Running Android unit tests with QEMU..."
+set +e
+ANDROID_TEST_OUTPUT=$(docker run --rm \
+    -v "$PROJECT_ROOT:/build" \
+    bookme-silly:ci-android-builder \
+    build-android.sh Release arm64-v8a true 2>&1)
+ANDROID_TEST_RESULT=$?
+set -e
+
+if [ $ANDROID_TEST_RESULT -eq 0 ]; then
+    print_success "Android unit tests passed"
+    echo "$ANDROID_TEST_OUTPUT" | grep -E "(test case|All tests passed|passed|PASSED|Tests passed)" || echo "$ANDROID_TEST_OUTPUT" | tail -5
+else
+    print_error "Android tests failed"
+    echo "$ANDROID_TEST_OUTPUT"
+    exit 1
+fi
+else
+    echo -e "${YELLOW}⊘ Skipping android-tests stage${NC}"
+fi
+
+# ============================================================================
 # Final Summary
 # ============================================================================
 print_header "CI Pipeline Complete - Selected Stages Passed!"
 
 echo -e "${GREEN}Summary:${NC}"
 if should_run_stage "builder"; then
-    echo "  Builder Image Size:     ${BUILDER_SIZE:-N/A}"
+    echo "  Desktop Builder Size:      ${BUILDER_SIZE:-N/A}"
 fi
 if should_run_stage "production"; then
-    echo "  Production Image Size:  ${PROD_SIZE:-N/A}"
+    echo "  Production Image Size:     ${PROD_SIZE:-N/A}"
 fi
 if should_run_stage "slim"; then
-    echo "  Slim Image Size:        ${SLIM_SIZE:-N/A}"
+    echo "  Slim Image Size:           ${SLIM_SIZE:-N/A}"
 fi
 if should_run_stage "tests"; then
-    echo "  Tests:                  PASSED ✓"
+    echo "  Desktop Tests:             PASSED ✓"
 fi
 if should_run_stage "verify"; then
-    echo "  Binary Verification:    PASSED ✓"
+    echo "  Desktop Binary Verify:     PASSED ✓"
+fi
+if should_run_stage "android-builder"; then
+    echo "  Android Builder Size:      ${ANDROID_BUILDER_SIZE:-N/A}"
+fi
+if should_run_stage "android-build"; then
+    echo "  Android Backend Build:     PASSED ✓"
+fi
+if should_run_stage "android-tests"; then
+    echo "  Android Tests:             PASSED ✓"
 fi
 
 echo -e "\n${GREEN}Ready to push changes!${NC}\n"
