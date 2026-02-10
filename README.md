@@ -10,6 +10,7 @@ An open source audio book player with high performance and cross-platform suppor
 - **[Docker Guide](docs/docker/DOCKER.md)** - Container setup and usage
 - **[CI/CD Setup](docs/ci/CI_SETUP.md)** - Continuous integration configuration
 - **[Android Build](docs/ANDROID_BUILD.md)** - Android APK build and deployment
+- **[Windows Backend Build](docs/WINDOWS_BACKEND_BUILD.md)** - Windows cross-compilation guide
 
 ## Features
 
@@ -26,7 +27,6 @@ An open source audio book player with high performance and cross-platform suppor
 - Docker (recommended)
 - CMake 3.10+
 - C++17 compiler
-- Qt6 development libraries
 
 ### Build and Test
 ```bash
@@ -70,13 +70,29 @@ make help
 
 See [docs/ANDROID_BUILD.md](docs/ANDROID_BUILD.md) for comprehensive Android build guide.
 
+### Windows Backend Build
+```bash
+# Build backend library and tests for Windows (cross-compilation)
+./scripts/build/windows-backend-build.sh
+
+# Or use make
+make windows-backend
+
+# Debug build
+make windows-backend-debug
+```
+
+Output: `output/windows/test_calculator.exe` (3.6MB, x86_64)
+
+See [docs/WINDOWS_BACKEND_BUILD.md](docs/WINDOWS_BACKEND_BUILD.md) for comprehensive Windows backend build guide.
+
 ## Project Organization
 
 The project uses a concern-based organization:
 
 ```
 docs/           → Documentation (architecture, setup, CI/CD)
-src/            → Source code (backend, frontend)
+src/            → Source code (backend library)
 include/        → Header files
 config/         → Configuration files (cppcheck, docker)
 scripts/        → Automation scripts (CI, analysis, dev)
@@ -103,6 +119,8 @@ Comprehensive documentation is available in the `docs/` directory:
 - **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** - Full project structure and design decisions
 - **[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)** - Contribution guidelines
 - **[docs/ANDROID_BUILD.md](docs/ANDROID_BUILD.md)** - Android APK build configuration and deployment
+- **[docs/WINDOWS_BUILD.md](docs/WINDOWS_BUILD.md)** - Windows 11 cross-compilation and distribution
+- **[docs/WINDOWS_BUILD_ANALYSIS.md](docs/WINDOWS_BUILD_ANALYSIS.md)** - Complete Windows build system analysis
 - **[docs/ci/](docs/ci/)** - CI/CD workflow and setup
 - **[docs/docker/](docs/docker/)** - Docker usage and configuration
 - **[docs/setup/](docs/setup/)** - Setup and dependencies

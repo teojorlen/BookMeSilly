@@ -114,20 +114,22 @@ ${GREEN}Documentation${NC}
 EOF
 }
 
-print_info() {
-    echo -e "${BLUE}[INFO]${NC} $*"
+print_header() {
+    echo -e "\n${BLUE}===================================================${NC}"
+    echo -e "${BLUE}$1${NC}"
+    echo -e "${BLUE}===================================================${NC}\n"
 }
 
 print_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $*"
+    echo -e "${GREEN}✓ $1${NC}"
 }
 
 print_error() {
-    echo -e "${RED}[ERROR]${NC} $*" >&2
+    echo -e "${RED}✗ $1${NC}" >&2
 }
 
-print_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $*"
+print_section() {
+    echo -e "\n${YELLOW}→ $1${NC}"
 }
 
 validate_variant() {
@@ -137,7 +139,7 @@ validate_variant() {
             ;;
         *)
             print_error "Invalid build variant: $1"
-            print_info "Valid options: debug, release"
+            print_section "Valid options: debug, release"
             return 1
             ;;
     esac
@@ -146,30 +148,30 @@ validate_variant() {
 clean_build_dir() {
     local build_dir="${PROJECT_ROOT}/build"
     if [[ -d "$build_dir" ]]; then
-        print_warning "Removing existing build directory..."
+        print_section "Removing existing build directory..."
         rm -rf "$build_dir"
         print_success "Build directory cleaned"
     else
-        print_info "Build directory does not exist, skipping clean"
+        print_section "Build directory does not exist, skipping clean"
     fi
 }
 
 build_with_docker() {
-    print_info "Building desktop application with Docker"
-    print_info "Variant: $BUILD_VARIANT"
+    print_section "Building desktop application with Docker"
+    print_section "Variant: $BUILD_VARIANT"
     if $BACKEND_ONLY; then
-        print_info "Mode: Backend-only (no Qt GUI)"
+        print_section "Mode: Backend-only (no Qt GUI)"
     else
-        print_info "Mode: Full desktop application with Qt GUI"
+        print_section "Mode: Full desktop application with Qt GUI"
     fi
 
     # Check if image already exists
     if docker image inspect bookmesilly:builder &>/dev/null; then
-        print_info "Using cached Docker image (bookmesilly:builder)"
+        print_section "Using cached Docker image (bookmesilly:builder)"
     else
-        print_info "Building Docker image with Qt6 and development tools..."
-        print_warning "First build downloads ~800MB (Qt6 cached for future builds)"
-        print_info "Estimated time: 3-7 minutes on first build, ~1 minute afterwards"
+        print_section "Building Docker image with Qt6 and development tools..."
+        print_section "First build downloads ~800MB (Qt6 cached for future builds)"
+        print_section "Estimated time: 3-7 minutes on first build, ~1 minute afterwards"
         
         if ! docker build \
             -f "${PROJECT_ROOT}/config/docker/Dockerfile" \
@@ -197,7 +199,7 @@ build_with_docker() {
     fi
 
     # Run build in container
-    print_info "Running desktop build in Docker container..."
+    print_section "Running desktop build in Docker container..."
     BUILD_OUTPUT_DIR="${PROJECT_ROOT}/build"
     mkdir -p "${BUILD_OUTPUT_DIR}"
 
@@ -212,12 +214,12 @@ build_with_docker() {
             ninja
         "; then
         print_error "Docker build failed"
-        print_info "Check output above for details"
+        print_section "Check output above for details"
         return 1
     fi
 
     print_success "Desktop build completed successfully"
-    print_info "Build directory: ${BUILD_OUTPUT_DIR}"
+    print_section "Build directory: ${BUILD_OUTPUT_DIR}"
     
     if ! $BACKEND_ONLY && [[ -f "${BUILD_OUTPUT_DIR}/app" ]]; then
         print_success "Executable created: ${BUILD_OUTPUT_DIR}/app"
@@ -225,40 +227,40 @@ build_with_docker() {
 }
 
 build_locally() {
-    print_info "Building desktop application locally (without Docker)"
+    print_section "Building desktop application locally (without Docker)"
 
     # Check for required tools
     if ! command -v cmake &>/dev/null; then
         print_error "CMake not found. Install with:"
-        print_info "  Ubuntu/Debian: sudo apt-get install cmake"
-        print_info "  macOS: brew install cmake"
+        print_section "  Ubuntu/Debian: sudo apt-get install cmake"
+        print_section "  macOS: brew install cmake"
         return 1
     fi
 
     if ! command -v ninja &>/dev/null; then
         print_error "Ninja not found. Install with:"
-        print_info "  Ubuntu/Debian: sudo apt-get install ninja-build"
-        print_info "  macOS: brew install ninja"
+        print_section "  Ubuntu/Debian: sudo apt-get install ninja-build"
+        print_section "  macOS: brew install ninja"
         return 1
     fi
 
     # Check for Qt6 (only if not backend-only build)
     if ! $BACKEND_ONLY; then
         if ! cmake --find-package -DNAME=Qt6 -DCOMPILER_ID=GNU -DLANGUAGE=CXX -DMODE=EXIST &>/dev/null; then
-            print_warning "Qt6 may not be installed or not in CMAKE_PREFIX_PATH"
-            print_info "Install Qt6 with:"
-            print_info "  Ubuntu/Debian: sudo apt-get install qt6-base-dev"
-            print_info "  macOS: brew install qt@6"
-            print_info ""
-            print_info "Or use backend-only mode: $(basename "$0") -b"
+            print_section "Qt6 may not be installed or not in CMAKE_PREFIX_PATH"
+            print_section "Install Qt6 with:"
+            print_section "  Ubuntu/Debian: sudo apt-get install qt6-base-dev"
+            print_section "  macOS: brew install qt@6"
+            print_section ""
+            print_section "Or use backend-only mode: $(basename "$0") -b"
         fi
     fi
 
-    print_info "Build variant: $BUILD_VARIANT"
+    print_section "Build variant: $BUILD_VARIANT"
     if $BACKEND_ONLY; then
-        print_info "Backend-only mode: Pure C++ library (no Qt)"
+        print_section "Backend-only mode: Pure C++ library (no Qt)"
     else
-        print_info "Full desktop mode: Qt6 GUI application"
+        print_section "Full desktop mode: Qt6 GUI application"
     fi
 
     BUILD_DIR="${PROJECT_ROOT}/build"
@@ -278,20 +280,20 @@ build_locally() {
         cmake_args="${cmake_args} -DBACKEND_ONLY=ON"
     fi
 
-    print_info "Configuring CMake..."
+    print_section "Configuring CMake..."
     if ! cmake .. "${cmake_args}"; then
         print_error "CMake configuration failed"
         return 1
     fi
 
-    print_info "Building with Ninja..."
+    print_section "Building with Ninja..."
     if ! ninja; then
         print_error "Ninja build failed"
         return 1
     fi
 
     print_success "Local desktop build completed"
-    print_info "Build directory: ${BUILD_DIR}"
+    print_section "Build directory: ${BUILD_DIR}"
     
     if ! $BACKEND_ONLY && [[ -f "${BUILD_DIR}/app" ]]; then
         print_success "Executable: ${BUILD_DIR}/app"
@@ -300,7 +302,7 @@ build_locally() {
 
 run_application() {
     if $BACKEND_ONLY; then
-        print_warning "Cannot run backend-only build (no executable)"
+        print_section "Cannot run backend-only build (no executable)"
         return 0
     fi
 
@@ -311,12 +313,12 @@ run_application() {
     fi
 
     if [[ ! -x "$app_path" ]]; then
-        print_warning "Application is not executable, making it executable..."
+        print_section "Application is not executable, making it executable..."
         chmod +x "$app_path"
     fi
 
-    print_info "Running application: $app_path"
-    print_info "----------------------------------------"
+    print_section "Running application: $app_path"
+    print_section "----------------------------------------"
     "$app_path"
 }
 
@@ -350,15 +352,15 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             print_error "Unknown option: $1"
-            print_info "Use -h or --help for usage information"
+            print_section "Use -h or --help for usage information"
             exit 1
             ;;
     esac
 done
 
 # Main execution
-print_info "BookMeSilly Desktop Build"
-print_info "Project root: ${PROJECT_ROOT}"
+print_header "BookMeSilly Desktop Build"
+print_section "Project root: ${PROJECT_ROOT}"
 
 # Clean if requested
 if $CLEAN_BUILD; then
@@ -373,13 +375,13 @@ else
 fi
 
 print_success "Desktop build completed successfully!"
-print_info "Build artifacts are in: ${PROJECT_ROOT}/build/"
+print_section "Build artifacts are in: ${PROJECT_ROOT}/build/"
 
 if ! $BACKEND_ONLY; then
     if [[ -f "${PROJECT_ROOT}/build/app" ]]; then
         print_success "Application executable: ${PROJECT_ROOT}/build/app"
-        print_info "Run with: ./build/app"
-        print_info "Or use: $(basename "$0") -r"
+        print_section "Run with: ./build/app"
+        print_section "Or use: $(basename "$0") -r"
     fi
 fi
 

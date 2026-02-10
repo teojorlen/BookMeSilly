@@ -115,20 +115,22 @@ ${GREEN}Documentation${NC}
 EOF
 }
 
-print_info() {
-    echo -e "${BLUE}[INFO]${NC} $*"
+print_header() {
+    echo -e "\n${BLUE}===================================================${NC}"
+    echo -e "${BLUE}$1${NC}"
+    echo -e "${BLUE}===================================================${NC}\n"
 }
 
 print_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $*"
+    echo -e "${GREEN}✓ $1${NC}"
 }
 
 print_error() {
-    echo -e "${RED}[ERROR]${NC} $*" >&2
+    echo -e "${RED}✗ $1${NC}" >&2
 }
 
-print_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $*"
+print_section() {
+    echo -e "\n${YELLOW}→ $1${NC}"
 }
 
 validate_variant() {
@@ -138,7 +140,7 @@ validate_variant() {
             ;;
         *)
             print_error "Invalid build variant: $1"
-            print_info "Valid options: debug, release"
+            print_section "Valid options: debug, release"
             return 1
             ;;
     esac
@@ -151,7 +153,7 @@ validate_arch() {
             ;;
         *)
             print_error "Invalid architecture: $1"
-            print_info "Valid options: armeabi-v7a, arm64-v8a, x86, x86_64"
+            print_section "Valid options: armeabi-v7a, arm64-v8a, x86, x86_64"
             return 1
             ;;
     esac
@@ -160,26 +162,26 @@ validate_arch() {
 validate_api() {
     if [[ ! "$1" =~ ^[0-9]+$ ]] || (( $1 < 21 || $1 > 35 )); then
         print_error "Invalid API level: $1"
-        print_info "API level must be between 21 and 35"
+        print_section "API level must be between 21 and 35"
         return 1
     fi
     return 0
 }
 
 build_with_docker() {
-    print_info "Building Android APK with Docker"
-    print_info "Variant: $BUILD_VARIANT, Architecture: $ANDROID_ARCH, API: 34"
+    print_section "Building Android APK with Docker"
+    print_section "Variant: $BUILD_VARIANT, Architecture: $ANDROID_ARCH, API: 34"
     if $RUN_TESTS; then
-        print_info "Tests: Will run after build (using QEMU)"
+        print_section "Tests: Will run after build (using QEMU)"
     fi
 
     # Check if image already exists
     if docker image inspect bookmesilly:android-builder &>/dev/null; then
-        print_info "Using cached Docker image (bookmesilly:android-builder)"
+        print_section "Using cached Docker image (bookmesilly:android-builder)"
     else
-        print_info "Building Docker image with Android NDK..."
-        print_warning "First build downloads ~500MB (NDK cached for future builds)"
-        print_info "Estimated time: 2-5 minutes on first build, 30 seconds afterwards"
+        print_section "Building Docker image with Android NDK..."
+        print_section "First build downloads ~500MB (NDK cached for future builds)"
+        print_section "Estimated time: 2-5 minutes on first build, 30 seconds afterwards"
         
         if ! docker build \
             -f "${PROJECT_ROOT}/config/docker/Dockerfile" \
@@ -194,7 +196,7 @@ build_with_docker() {
     fi
 
     # Run build in container
-    print_info "Running Android build in Docker container..."
+    print_section "Running Android build in Docker container..."
     BUILD_OUTPUT_DIR="${PROJECT_ROOT}/android-build"
     mkdir -p "${BUILD_OUTPUT_DIR}"
 
@@ -204,16 +206,16 @@ build_with_docker() {
         "bookmesilly:android-builder" \
         build-android.sh "$([ "$BUILD_VARIANT" = "debug" ] && echo "Debug" || echo "Release")" "$ANDROID_ARCH" "$RUN_TESTS" || {
         print_error "Docker build failed"
-        print_info "Check output above for details"
+        print_section "Check output above for details"
         return 1
     }
 
     print_success "Android APK build completed successfully"
-    print_info "Output directory: ${BUILD_OUTPUT_DIR}"
+    print_section "Output directory: ${BUILD_OUTPUT_DIR}"
 }
 
 build_locally() {
-    print_info "Building Android APK locally (without Docker)"
+    print_section "Building Android APK locally (without Docker)"
 
     # Validate environment
     if [[ -z "${ANDROID_NDK:-}" ]]; then
@@ -228,27 +230,27 @@ build_locally() {
 
     if ! command -v cmake &>/dev/null; then
         print_error "CMake not found. Install with:"
-        print_info "  Ubuntu/Debian: sudo apt-get install cmake"
-        print_info "  macOS: brew install cmake"
+        print_section "  Ubuntu/Debian: sudo apt-get install cmake"
+        print_section "  macOS: brew install cmake"
         return 1
     fi
 
     if ! command -v ninja &>/dev/null; then
         print_error "Ninja not found. Install with:"
-        print_info "  Ubuntu/Debian: sudo apt-get install ninja-build"
-        print_info "  macOS: brew install ninja"
+        print_section "  Ubuntu/Debian: sudo apt-get install ninja-build"
+        print_section "  macOS: brew install ninja"
         return 1
     fi
 
-    print_info "ANDROID_NDK: ${ANDROID_NDK}"
-    print_info "Architecture: ${ANDROID_ARCH}"
-    print_info "Variant: ${BUILD_VARIANT}"
+    print_section "ANDROID_NDK: ${ANDROID_NDK}"
+    print_section "Architecture: ${ANDROID_ARCH}"
+    print_section "Variant: ${BUILD_VARIANT}"
 
     BUILD_DIR="${PROJECT_ROOT}/android-build"
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    print_info "Configuring CMake for Android..."
+    print_section "Configuring CMake for Android..."
     if ! cmake .. \
         -GNinja \
         -DCMAKE_BUILD_TYPE="$([ "$BUILD_VARIANT" = "debug" ] && echo "Debug" || echo "Release")" \
@@ -262,14 +264,14 @@ build_locally() {
         return 1
     fi
 
-    print_info "Building with Ninja..."
+    print_section "Building with Ninja..."
     if ! ninja; then
         print_error "Ninja build failed"
         return 1
     fi
 
     print_success "Local Android build completed"
-    print_info "Build directory: ${BUILD_DIR}"
+    print_section "Build directory: ${BUILD_DIR}"
 }
 
 # Parse arguments
@@ -304,31 +306,31 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             print_error "Unknown option: $1"
-            print_info "Use -h or --help for usage information"
+            print_section "Use -h or --help for usage information"
             exit 1
             ;;
     esac
 done
 
 # Main execution
-print_info "BookMeSilly Android Build"
-print_info "Project root: ${PROJECT_ROOT}"
+print_header "BookMeSilly Android Build"
+print_section "Project root: ${PROJECT_ROOT}"
 
 if $USE_DOCKER; then
     build_with_docker || exit 1
 else
-    print_info "Local build mode (without Docker)"
-    print_info "Requires ANDROID_NDK to be set"
+    print_section "Local build mode (without Docker)"
+    print_section "Requires ANDROID_NDK to be set"
     if [[ -z "${ANDROID_NDK:-}" ]]; then
         print_error "ANDROID_NDK environment variable not set"
-        print_info ""
-        print_info "Set ANDROID_NDK and try again:"
-        print_info "  export ANDROID_NDK=/path/to/android-ndk"
-        print_info "  ./scripts/build/android-build.sh --local"
+        print_section ""
+        print_section "Set ANDROID_NDK and try again:"
+        print_section "  export ANDROID_NDK=/path/to/android-ndk"
+        print_section "  ./scripts/build/android-build.sh --local"
         exit 1
     fi
     build_locally || exit 1
 fi
 
 print_success "Android build completed successfully!"
-print_info "Build artifacts are in: ${PROJECT_ROOT}/android-build/"
+print_section "Build artifacts are in: ${PROJECT_ROOT}/android-build/"

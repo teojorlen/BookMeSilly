@@ -1,0 +1,143 @@
+################################################################################
+# BookMeSilly - Windows Backend Cross-Compilation
+# Build: Ubuntu 24.04 LTS with MinGW-w64
+# Target: Windows 11 x86_64 (backend library + tests only, no GUI)
+# Build Time: ~5 minutes
+################################################################################
+
+FROM ubuntu:24.04 AS windows-backend-builder
+
+# Environment setup
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    MINGW_ARCH=x86_64-w64-mingw32 \
+    CMAKE_TOOLCHAIN_FILE=/opt/toolchain-mingw64.cmake
+
+# Install MinGW-w64 cross-compiler and build tools
+RUN dpkg --add-architecture i386 && \
+    apt-get update && apt-get install -y --no-install-recommends \
+    # MinGW cross-compilation toolchain
+    g++-mingw-w64-x86-64 \
+    gcc-mingw-w64-x86-64 \
+    mingw-w64-tools \
+    # Build tools
+    cmake \
+    ninja-build \
+    git \
+    pkg-config \
+    ca-certificates \
+    file \
+    # Wine dependencies and binary
+    wget \
+    gnupg2 \
+    software-properties-common \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Wine from WineHQ repository for better compatibility
+RUN mkdir -pm755 /etc/apt/keyrings && \
+    wget -O /etc/apt/keyrings/winehq-archive.key https://dl.winehq.org/wine-builds/winehq.key && \
+    wget -NP /etc/apt/sources.list.d/ https://dl.winehq.org/wine-builds/ubuntu/dists/noble/winehq-noble.sources && \
+    apt-get update && \
+    apt-get install -y --install-recommends winehq-stable && \
+    rm -rf /var/lib/apt/lists/*
+
+# Configure Wine to suppress unnecessary output
+ENV WINEDEBUG=-all \
+    WINEPREFIX=/tmp/.wine
+
+# Create CMake toolchain file for MinGW
+RUN echo '# CMake toolchain for MinGW-w64 cross-compilation\n\
+set(CMAKE_SYSTEM_NAME Windows)\n\
+set(CMAKE_SYSTEM_PROCESSOR x86_64)\n\
+\n\
+# Specify the cross-compiler\n\
+set(CMAKE_C_COMPILER x86_64-w64-mingw32-gcc)\n\
+set(CMAKE_CXX_COMPILER x86_64-w64-mingw32-g++)\n\
+set(CMAKE_RC_COMPILER x86_64-w64-mingw32-windres)\n\
+\n\
+# Target environment\n\
+set(CMAKE_FIND_ROOT_PATH /usr/x86_64-w64-mingw32)\n\
+\n\
+# Search settings\n\
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)\n\
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)\n\
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)\n\
+set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)\n\
+\n\
+# Ensure static linking for portability\n\
+set(CMAKE_EXE_LINKER_FLAGS "-static-libgcc -static-libstdc++" CACHE STRING "" FORCE)\n\
+' > ${CMAKE_TOOLCHAIN_FILE}
+
+# Set up build directory
+WORKDIR /build
+COPY . /build/
+
+# Configure CMake with MinGW toolchain
+RUN cmake -B build-windows \
+    -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE} \
+    -DCMAKE_CXX_STANDARD=17 \
+    -DCMAKE_CXX_STANDARD_REQUIRED=ON
+
+# Build backend library and tests
+RUN cmake --build build-windows --config Release --parallel $(nproc)
+
+# Create output directory and copy artifacts
+RUN mkdir -p /output && \
+    cp build-windows/test_calculator.exe /output/ && \
+    cp build-windows/libbackend.a /output/ && \
+    echo "Backend library and tests built for Windows x86_64" > /output/BUILD_INFO.txt && \
+    echo "Build Date: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> /output/BUILD_INFO.txt && \
+    echo "Toolchain: MinGW-w64 (x86_64-w64-mingw32)" >> /output/BUILD_INFO.txt && \
+    echo "C++ Standard: C++17" >> /output/BUILD_INFO.txt
+
+################################################################################
+# Export Stage - Minimal image with only the Windows binaries
+################################################################################
+
+FROM scratch AS export
+COPY --from=windows-backend-builder /output /
+
+################################################################################
+# Test Stage - Run Windows tests with Wine
+################################################################################
+
+FROM windows-backend-builder AS test
+
+# Run Windows unit tests using Wine
+RUN echo "Running Windows unit tests with Wine..." && \
+    wine build-windows/test_calculator.exe && \
+    echo "✓ All Windows tests passed"
+
+################################################################################
+# Verification Stage - Test the Windows build
+################################################################################
+
+FROM windows-backend-builder AS verify
+
+# Verify Windows binaries were created
+RUN echo "Verifying Windows build artifacts..." && \
+    file build-windows/test_calculator.exe && \
+    file build-windows/libbackend.a && \
+    echo "✓ Windows backend build successful"
+
+# Display build information
+RUN cat /output/BUILD_INFO.txt
+
+################################################################################
+# Usage:
+#
+# Build Windows backend:
+#   docker build -f config/docker/Dockerfile.windows-backend -t bookme-silly:windows-backend .
+#
+# Build and run tests:
+#   docker build -f config/docker/Dockerfile.windows-backend --target test -t bookme-silly:windows-backend-test .
+#
+# Extract binaries:
+#   docker build -f config/docker/Dockerfile.windows-backend --target export -o output/windows .
+#
+# Or use the build script:
+#   ./scripts/build/windows-backend-build.sh
+################################################################################
